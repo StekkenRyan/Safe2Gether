@@ -1,0 +1,1017 @@
+openapi: 3.1.0
+
+info:
+  title: Safe2Gether API
+  version: 1.0.0
+  description: |
+    REST API for Safe2Gether — a community safety app for the DACH region.
+
+    **Core principle**: Safety is always free. Premium is comfort and community.
+
+    All timestamps are ISO 8601 (UTC). All IDs are UUID v4.
+
+    WebSocket endpoint `/ws/alarm/{user_id}` is not covered by this spec —
+    OpenAPI 3.1 does not natively support WebSocket. See `x-websocket` at the
+    bottom of this document; a full AsyncAPI spec is planned for v2.0.
+  license:
+    name: AGPL v3
+    url: https://www.gnu.org/licenses/agpl-3.0.html
+  contact:
+    url: https://github.com/StekkenRyan
+
+servers:
+  - url: http://localhost:5000
+    description: Local development (Docker Compose)
+  - url: https://api.safe2gether.app
+    description: Production (Cloudflare Tunnel → sora) — placeholder
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: auth
+    description: Authentication, session management, and device token registration
+  - name: users
+    description: User profile and GDPR account deletion
+  - name: contacts
+    description: Emergency contacts (unlimited, any tier)
+  - name: escalation
+    description: User-configurable escalation chain
+  - name: alarms
+    description: Panic Button — trigger and manage alarms
+  - name: geohash
+    description: Nearby Alerting — coarse location cell updates
+  - name: heartbeat
+    description: Keep-alive signal (v1.0 base; foundation for v2.0 Dead Man's Switch)
+
+# ══════════════════════════════════════════════════════════
+# COMPONENTS
+# ══════════════════════════════════════════════════════════
+
+components:
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived JWT (1 h) obtained from POST /api/v1/auth/signin
+
+  # ── Schemas ──────────────────────────────────────────────
+
+  schemas:
+
+    User:
+      type: object
+      required: [id, auth_provider, reputation_score, reputation_level, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+          example: "550e8400-e29b-41d4-a716-446655440000"
+        email:
+          type: string
+          format: email
+          description: Present for google and email providers
+        phone_number:
+          type: string
+          example: "+4915112345678"
+        phone_verified:
+          type: boolean
+          default: false
+        auth_provider:
+          type: string
+          enum: [apple, google, email]
+        reputation_score:
+          type: integer
+          minimum: 0
+          example: 75
+        reputation_level:
+          type: string
+          enum: [normal, low, very_low]
+          description: |
+            - **normal**: full access
+            - **low**: can send alarms; does not receive community alerts;
+              false-alarm notice shown to recipients
+            - **very_low**: manual review queue; alarm sending always remains possible
+              (safety is never gated)
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    EmergencyContact:
+      type: object
+      required: [id, contact_type, contact_value, name, order_in_escalation]
+      properties:
+        id:
+          type: string
+          format: uuid
+        contact_type:
+          type: string
+          enum: [phone, email, in_app]
+          description: |
+            - **phone**: notified via APNs SMS fallback
+            - **email**: notified via email
+            - **in_app**: another Safe2Gether user, identified by their UUID
+        contact_value:
+          type: string
+          description: Phone number, email address, or in-app user UUID
+          example: "+4915112345678"
+        name:
+          type: string
+          example: "Anna"
+        order_in_escalation:
+          type: integer
+          minimum: 1
+          description: 1 = first to be notified
+        created_at:
+          type: string
+          format: date-time
+
+    EscalationChain:
+      type: object
+      required: [escalation_order]
+      properties:
+        escalation_order:
+          type: array
+          items:
+            type: string
+            enum: [device_local, contacts, community, contacts+community]
+          minItems: 1
+          uniqueItems: true
+          example: ["device_local", "contacts", "community"]
+          description: |
+            Ordered escalation steps. Supported values:
+            - **device_local** — on-device timer fires (no server needed)
+            - **contacts** — emergency contacts notified via APNs
+            - **community** — nearby anonymous users notified
+            - **contacts+community** — contacts and community notified simultaneously
+
+            Examples:
+            - `["device_local","contacts","community"]` — default
+            - `["device_local","community","contacts"]` — solo outdoor (no reachable contacts)
+            - `["device_local","contacts+community"]` — high-risk parallel mode
+        delay_seconds_between_stages:
+          type: integer
+          minimum: 0
+          default: 30
+          description: Wait time before advancing to the next escalation stage
+
+    Alarm:
+      type: object
+      required: [id, user_id, triggered_at, trigger_source, status, escalation_stage]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        triggered_at:
+          type: string
+          format: date-time
+        trigger_source:
+          type: string
+          enum: [in_app, widget, hardware_button, dead_mans_switch]
+          description: |
+            - **in_app** / **widget**: manual Panic Button
+            - **hardware_button**: LoRa key fob (v2.0)
+            - **dead_mans_switch**: server-initiated escalation (v2.0)
+        status:
+          type: string
+          enum: [active, resolved, false_alarm]
+        escalation_stage:
+          type: string
+          enum: [device_local, contacts, community]
+          description: Current stage of the escalation chain
+        geohash_snapshot:
+          type: string
+          example: "871f1d48dffffff"
+          description: H3 level-7 cell at trigger time (≈1.2 km²). No exact coordinate stored.
+        responders:
+          type: array
+          description: UUIDs of users who pressed "Ich helfe"
+          items:
+            type: string
+            format: uuid
+        auto_delete_at:
+          type: string
+          format: date-time
+          description: GDPR — record is automatically purged 30 days after creation
+
+    ReputationAction:
+      type: object
+      properties:
+        action_type:
+          type: string
+          enum: [phone_verified, helped_successfully, false_alarm_reported, loyalty_bonus]
+        score_delta:
+          type: integer
+          example: 5
+        alarm_id:
+          type: string
+          format: uuid
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    ReputationInfo:
+      type: object
+      required: [score, level]
+      properties:
+        score:
+          type: integer
+          minimum: 0
+        level:
+          type: string
+          enum: [normal, low, very_low]
+        recent_actions:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReputationAction'
+          maxItems: 20
+
+    GeohashUpdate:
+      type: object
+      required: [geohash, status]
+      properties:
+        geohash:
+          type: string
+          example: "871f1d48dffffff"
+          description: H3 index string (level 7, ≈1.2 km²)
+        status:
+          type: string
+          enum: [online, expected_offline]
+          description: |
+            - **online**: device is reachable
+            - **expected_offline**: device is about to lose signal (tunnel, remote area)
+        offline_duration_seconds:
+          type: integer
+          minimum: 0
+          description: Required when status is `expected_offline` — extends Redis TTL to avoid false escalation
+
+    HeartbeatRequest:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [alive, expected_offline]
+        offline_duration_seconds:
+          type: integer
+          minimum: 0
+          description: Required when status is `expected_offline`
+
+    # ── Auth request bodies ──────────────────────────────────
+
+    SignInApple:
+      type: object
+      required: [provider, id_token]
+      properties:
+        provider:
+          type: string
+          enum: [apple]
+        id_token:
+          type: string
+          description: Identity token from Apple Sign In
+
+    SignInGoogle:
+      type: object
+      required: [provider, id_token]
+      properties:
+        provider:
+          type: string
+          enum: [google]
+        id_token:
+          type: string
+          description: ID token from Google Sign In
+
+    SignInEmail:
+      type: object
+      required: [provider, email, password]
+      properties:
+        provider:
+          type: string
+          enum: [email]
+        email:
+          type: string
+          format: email
+        password:
+          type: string
+          format: password
+          minLength: 8
+
+    AuthResponse:
+      type: object
+      required: [access_token, refresh_token, token_type, expires_in, user]
+      properties:
+        access_token:
+          type: string
+          description: Short-lived JWT (1 hour)
+        refresh_token:
+          type: string
+          description: Long-lived refresh token (30 days)
+        token_type:
+          type: string
+          enum: [Bearer]
+        expires_in:
+          type: integer
+          example: 3600
+        user:
+          $ref: '#/components/schemas/User'
+
+    # ── Standard error ────────────────────────────────────────
+
+    Error:
+      type: object
+      required: [error, code]
+      properties:
+        error:
+          type: string
+          example: "Unauthorized"
+        code:
+          type: string
+          example: "TOKEN_EXPIRED"
+        detail:
+          type: string
+          example: "The access token has expired. Use /auth/refresh to obtain a new one."
+
+  # ── Reusable responses ────────────────────────────────────
+
+  responses:
+    BadRequest:
+      description: Invalid request body or parameters
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Unauthorized:
+      description: Missing or invalid authentication token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    Forbidden:
+      description: Authenticated but not authorized for this action
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    TooManyRequests:
+      description: Rate limit exceeded
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+          description: Seconds until rate limit resets
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+    InternalServerError:
+      description: Unexpected server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+# ══════════════════════════════════════════════════════════
+# PATHS
+# ══════════════════════════════════════════════════════════
+
+paths:
+
+  # ── Auth ──────────────────────────────────────────────────
+
+  /api/v1/auth/signin:
+    post:
+      tags: [auth]
+      summary: Sign in or create account
+      description: |
+        Authenticates with Apple, Google, or email/password. Creates an account
+        on first sign-in (no separate registration endpoint needed).
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              oneOf:
+                - $ref: '#/components/schemas/SignInApple'
+                - $ref: '#/components/schemas/SignInGoogle'
+                - $ref: '#/components/schemas/SignInEmail'
+              discriminator:
+                propertyName: provider
+                mapping:
+                  apple:  '#/components/schemas/SignInApple'
+                  google: '#/components/schemas/SignInGoogle'
+                  email:  '#/components/schemas/SignInEmail'
+      responses:
+        '200':
+          description: Authenticated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuthResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/auth/refresh:
+    post:
+      tags: [auth]
+      summary: Refresh access token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties:
+                refresh_token:
+                  type: string
+      responses:
+        '200':
+          description: New access token issued
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [access_token, expires_in]
+                properties:
+                  access_token:
+                    type: string
+                  expires_in:
+                    type: integer
+                    example: 3600
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/auth/logout:
+    post:
+      tags: [auth]
+      summary: Invalidate session
+      description: Revokes the refresh token. The short-lived access token expires naturally.
+      responses:
+        '204':
+          description: Session invalidated
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/auth/verify-phone:
+    post:
+      tags: [auth]
+      summary: Verify phone number via SMS OTP
+      description: |
+        Two-step flow:
+        1. Call without `otp` → server sends a 6-digit SMS to `phone_number`
+        2. Call with `otp` → server verifies; success raises the reputation base score
+
+        Phone verification is optional but strongly recommended.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone_number]
+              properties:
+                phone_number:
+                  type: string
+                  example: "+4915112345678"
+                otp:
+                  type: string
+                  pattern: '^\d{6}$'
+                  description: Omit to request a new code; include to verify
+      responses:
+        '200':
+          description: Code sent or verification successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  verified:
+                    type: boolean
+                  message:
+                    type: string
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+
+  /api/v1/auth/device-token:
+    put:
+      tags: [auth]
+      summary: Register or update APNs device token
+      description: |
+        Must be called after every sign-in and whenever iOS assigns a new push token.
+        Used for alarm notifications and silent wakeups (Dead Man's Switch, v2.0).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [device_token, environment]
+              properties:
+                device_token:
+                  type: string
+                  description: Hex-encoded APNs device token from iOS
+                environment:
+                  type: string
+                  enum: [sandbox, production]
+      responses:
+        '204':
+          description: Device token stored
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Users ─────────────────────────────────────────────────
+
+  /api/v1/users/me:
+    get:
+      tags: [users]
+      summary: Get own profile
+      responses:
+        '200':
+          description: User profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags: [users]
+      summary: Update own profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                email:
+                  type: string
+                  format: email
+                phone_number:
+                  type: string
+      responses:
+        '200':
+          description: Updated profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    delete:
+      tags: [users]
+      summary: Request account deletion (GDPR Art. 17)
+      description: |
+        Soft-deletes the account. The record is anonymised immediately and scheduled
+        for permanent deletion within 30 days. Any active alarm is resolved first.
+      responses:
+        '202':
+          description: Deletion request accepted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [scheduled_deletion_at]
+                properties:
+                  scheduled_deletion_at:
+                    type: string
+                    format: date-time
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/users/me/reputation:
+    get:
+      tags: [users]
+      summary: Get own reputation score
+      responses:
+        '200':
+          description: Reputation info with recent action history
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReputationInfo'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Emergency contacts ────────────────────────────────────
+
+  /api/v1/contacts:
+    get:
+      tags: [contacts]
+      summary: List emergency contacts
+      description: Returns all contacts, ordered by `order_in_escalation`.
+      responses:
+        '200':
+          description: Contact list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/EmergencyContact'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    post:
+      tags: [contacts]
+      summary: Add emergency contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [contact_type, contact_value, name]
+              properties:
+                contact_type:
+                  type: string
+                  enum: [phone, email, in_app]
+                contact_value:
+                  type: string
+                name:
+                  type: string
+                order_in_escalation:
+                  type: integer
+                  minimum: 1
+                  description: If omitted, appended at the end of the list
+      responses:
+        '201':
+          description: Contact created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyContact'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/contacts/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    patch:
+      tags: [contacts]
+      summary: Update emergency contact
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                contact_value:
+                  type: string
+                name:
+                  type: string
+                order_in_escalation:
+                  type: integer
+                  minimum: 1
+      responses:
+        '200':
+          description: Updated contact
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmergencyContact'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    delete:
+      tags: [contacts]
+      summary: Delete emergency contact
+      responses:
+        '204':
+          description: Contact deleted
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  # ── Escalation chain ─────────────────────────────────────
+
+  /api/v1/escalation:
+    get:
+      tags: [escalation]
+      summary: Get escalation chain
+      responses:
+        '200':
+          description: Current escalation configuration
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EscalationChain'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+    patch:
+      tags: [escalation]
+      summary: Update escalation chain
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EscalationChain'
+      responses:
+        '200':
+          description: Updated escalation chain
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EscalationChain'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Alarms (Panic Button) ─────────────────────────────────
+
+  /api/v1/alarms:
+    post:
+      tags: [alarms]
+      summary: Trigger alarm (Panic Button)
+      description: |
+        Triggers an alarm. The server immediately:
+        1. Notifies emergency contacts via APNs
+        2. Identifies nearby users via Redis geohash lookup
+        3. Sends a coarse push to nearby users (direction + distance only — no exact pin)
+
+        **Tier architecture note**: The device fires its own local timer independently
+        of this call. The server is on the happy path, not the critical path.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [trigger_source]
+              properties:
+                trigger_source:
+                  type: string
+                  enum: [in_app, widget, hardware_button]
+                geohash_snapshot:
+                  type: string
+                  description: |
+                    H3 cell at trigger time (level 7). Optional — server falls back to
+                    the last known geohash if this is omitted and the cached value is recent.
+      responses:
+        '201':
+          description: Alarm created and notifications dispatched
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alarm'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /api/v1/alarms/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    get:
+      tags: [alarms]
+      summary: Get alarm details
+      description: |
+        Returns the alarm state. If the requesting user is a confirmed responder,
+        the response additionally includes the originator's exact coordinates.
+      responses:
+        '200':
+          description: Alarm details
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/Alarm'
+                  - type: object
+                    properties:
+                      exact_location:
+                        type: object
+                        nullable: true
+                        description: Only present when the requester is a confirmed responder
+                        required: [latitude, longitude]
+                        properties:
+                          latitude:
+                            type: number
+                            format: double
+                          longitude:
+                            type: number
+                            format: double
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+    patch:
+      tags: [alarms]
+      summary: Update alarm status
+      description: Only the alarm owner can update status. Nearby responders are notified via push.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status:
+                  type: string
+                  enum: [resolved, false_alarm]
+      responses:
+        '200':
+          description: Updated alarm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Alarm'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/alarms/{id}/respond:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      tags: [alarms]
+      summary: Respond to alarm ("Ich helfe")
+      description: |
+        Registers the requesting user as a responder. This:
+        1. Unlocks the originator's exact coordinates for this user
+        2. Notifies the alarm owner that help is on the way (push)
+        3. Contributes positively to the responder's reputation score on follow-through
+      responses:
+        '200':
+          description: Response registered — exact location returned
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alarm_id, exact_location]
+                properties:
+                  alarm_id:
+                    type: string
+                    format: uuid
+                  exact_location:
+                    type: object
+                    required: [latitude, longitude]
+                    properties:
+                      latitude:
+                        type: number
+                        format: double
+                      longitude:
+                        type: number
+                        format: double
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Already registered as responder for this alarm
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  # ── Geohash (Nearby Alerting) ─────────────────────────────
+
+  /api/v1/geohash:
+    put:
+      tags: [geohash]
+      summary: Update user's location cell
+      description: |
+        Called when iOS fires `significantLocationChange` (cell tower change,
+        ≈500 m–2 km precision). Only the H3 index (level 7, ≈1.2 km²) is stored —
+        never an exact coordinate. Stored in Redis with a TTL; no persistent history.
+
+        When `status` is `expected_offline`, the server extends the TTL by
+        `offline_duration_seconds` to prevent false escalation during planned
+        no-signal zones (tunnels, underground, remote areas).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GeohashUpdate'
+      responses:
+        '204':
+          description: Geohash updated
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # ── Heartbeat ─────────────────────────────────────────────
+
+  /api/v1/heartbeat:
+    post:
+      tags: [heartbeat]
+      summary: Send keep-alive signal
+      description: |
+        Resets the user's Redis TTL. Foundation for the v2.0 Dead Man's Switch —
+        when the TTL expires without a heartbeat and no `expected_offline` grace
+        period is active, the server will initiate escalation.
+
+        In v1.0 this is informational only (no server-side escalation yet).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/HeartbeatRequest'
+      responses:
+        '204':
+          description: Heartbeat received
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+# ══════════════════════════════════════════════════════════
+# EXTENSIONS
+# ══════════════════════════════════════════════════════════
+
+x-websocket:
+  description: |
+    The WebSocket endpoint `/ws/alarm/{user_id}` is used for real-time alarm
+    status updates (v1.0) and premium live location sharing (v2.0).
+    Full specification will be provided as an AsyncAPI document in v2.0.
+  endpoints:
+    - path: /ws/alarm/{user_id}
+      description: Receives real-time alarm state changes for the authenticated user
+      events:
+        - alarm_created
+        - alarm_status_changed
+        - responder_added
+
+x-planned-v2:
+  description: |
+    Endpoints planned for v2.0 — NOT part of this contract:
+    - Dead Man's Switch escalation (server-initiated, trigger_source: dead_mans_switch)
+    - EXPECTED_OFFLINE heartbeat with configurable timer
+    - Premium live location sharing (groups)
+    - LoRa hardware gateway ingest (POST /api/v1/webhooks/lora)
+    - Full AsyncAPI WebSocket specification
