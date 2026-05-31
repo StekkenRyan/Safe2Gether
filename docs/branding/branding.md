@@ -1,11 +1,16 @@
 # Branding — Safe2Gether
 
+## Markendirection
+
+Sicherheit ist kein Solo-Thema. Safe2Gether setzt auf **gegenseitige Hilfe** — Nearby Alerting,
+geteilte Verantwortung, kollektives Wohlbefinden. Das "2gether" ist wörtlich gemeint.
+
 ## Tagline / Bio
 
 > Für alle, die allein unterwegs sind.  
 > Sicherheit, die im Notfall für dich spricht.
 
-Ton: zugänglich, klar, nicht technisch. Kein Alarm-Vokabular, kein Jargon.
+Ton: zugänglich, warm, gemeinschaftlich. Kein Alarm-Vokabular, kein Jargon.
 
 ## Wordmark
 
@@ -18,7 +23,7 @@ Ton: zugänglich, klar, nicht technisch. Kein Alarm-Vokabular, kein Jargon.
 
 | Rolle | Hex | Verwendung |
 |-------|-----|-----------|
-| Primary | `#1B3F5C` | Haupttext ("Safe", "Gether"), Hintergründe |
+| Primary | `#02D9FE` | Haupttext ("Safe", "Gether"), Hintergründe |
 | Accent | `#27B0A0` | Die "2" im Wordmark, Highlights |
 | Background | `#FFFFFF` | Standard-Canvas |
 | Dark BG | `#0F2132` | Invertierte Variante |
