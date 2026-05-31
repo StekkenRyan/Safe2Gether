@@ -56,7 +56,7 @@ Neubewertung:
 - **Entkoppelter Outbound-Kanal**: Twilio/SMTP nicht im Flask Request-Response-Cycle blockierend
 - **Cloudflare Health Check + systemd Watchdog** auf sora; optional Hetzner Backup-VPS (~4 €/Monat)
 
-## Geplante Verzeichnisstruktur
+## Verzeichnisstruktur
 
 ```
 ServerCode/
@@ -66,11 +66,25 @@ ServerCode/
 │   ├── alarm.py           # Alarm-Auslösung und Eskalation
 │   ├── routes.py          # API-Endpunkte
 │   └── notifications.py   # Twilio / SMTP (entkoppelt)
-├── tests/
 ├── docs/
+│   ├── docs.md            # Dokumentations-Index (Übersicht aller Docs)
+│   └── branding/
+│       └── branding.md    # Marke, Sprache, Tonalität, Farben, Schriften
+├── tests/
 ├── requirements.txt
 └── CLAUDE.md
 ```
+
+## Dokumentation & Arbeitsweise
+
+**Vor jeder Implementierung** relevante Docs lesen — nicht aus dem Gedächtnis arbeiten:
+
+| Thema | Dokument |
+|-------|----------|
+| Marke, Sprache, Tonalität | [docs/branding/branding.md](docs/branding/branding.md) |
+| Dokumentations-Übersicht | [docs/docs.md](docs/docs.md) |
+
+**Pflege-Regel**: Wenn Code-Änderungen ein bestehendes Dokument berühren (z.B. neue API-Endpunkte → API-Docs, neue Konfiguration → Setup-Guide), wird das Dokument **im selben Arbeitsschritt** aktualisiert — nicht nachträglich. Neue Docs werden in `docs.md` eingetragen.
 
 ## Open-Source-Setup
 
