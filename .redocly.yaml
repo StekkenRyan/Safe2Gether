@@ -1,6 +1,2 @@
-apis:
-  main:
-    root: docs/api/openapi.yaml
-
 rules:
   no-server-example.com: off

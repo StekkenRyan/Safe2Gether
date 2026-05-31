@@ -20,10 +20,10 @@ info:
     url: https://github.com/StekkenRyan
 
 servers:
+  - url: https://api.safe2gether.de
+    description: Production (Cloudflare Tunnel → sora)
   - url: http://localhost:5000
     description: Local development (Docker Compose)
-  - url: https://api.safe2gether.app
-    description: Production (Cloudflare Tunnel → sora) — placeholder
 
 security:
   - BearerAuth: []
