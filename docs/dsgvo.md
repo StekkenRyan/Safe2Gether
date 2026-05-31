@@ -41,7 +41,7 @@ Er ist die Grundlage für die öffentliche Datenschutzerklärung, die **vor dem 
 | Telefonnummer | Nein | OTP-Verifikation → Reputation-Score | Datenbank |
 | Verifikationsstatus | Ja (nach Verifikation) | Reputation-Nachweis | Datenbank |
 
-**Rechtsgrundlage**: Art. 6 Abs. 1 lit. a DSGVO (Einwilligung — freiwillig)
+**Rechtsgrundlage**: Art. 6 Abs. 1 lit. a DSGVO (Einwilligung — jederzeit mit Wirkung für die Zukunft widerrufbar)
 
 ---
 
@@ -81,6 +81,8 @@ Er ist die Grundlage für die öffentliche Datenschutzerklärung, die **vor dem 
 | Reputation-Score (Zahl) | Community-Vertrauen, Feature-Zugang | Datenbank | Mit Account-Löschung |
 | Aktions-Log (Typ, Delta, Zeitstempel) | Nachvollziehbarkeit, Missbrauchsschutz | Datenbank | 30 Tage rollierend |
 
+**Rechtsgrundlage**: Art. 6 Abs. 1 lit. f DSGVO (Berechtigtes Interesse: Gewährleistung der Plattformsicherheit und Missbrauchsprävention)
+
 ---
 
 ### 6. Notfallkontakte
@@ -88,6 +90,7 @@ Er ist die Grundlage für die öffentliche Datenschutzerklärung, die **vor dem 
 **Gespeichert ausschließlich auf dem Gerät (iOS Keychain / verschlüsselt).**
 Kein zentrales Adressbuch auf dem Server. Bei Alarmauslösung werden Kontakt-Metadaten (Typ + anonymisierter Bezeichner) für die Push-Zustellung temporär übermittelt.
 
+**Rechtsgrundlage**: Art. 6 Abs. 1 lit. b DSGVO (Vertragserfüllung)
 ---
 
 ### 7. Session-Daten (Redis)
@@ -108,7 +111,7 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 | **Apple APNs** | Push-Benachrichtigungen (Alarme, DMS) | APNs Device Token | Art. 6 Abs. 1 lit. b |
 | **Apple Sign In** | Authentifizierung | Sub (anonyme ID) + optional E-Mail via Privacy Relay | Art. 6 Abs. 1 lit. b |
 | **Google Sign In** | Authentifizierung | Sub + E-Mail | Art. 6 Abs. 1 lit. b |
-| **Cloudflare** | CDN / Tunnel / DDoS-Schutz | IP-Adressen, HTTP-Metadaten | Art. 6 Abs. 1 lit. f |
+| **Cloudflare** | CDN / Tunnel / DDoS-Schutz | IP-Adressen, HTTP-Metadaten | Art. 6 Abs. 1 lit. f (Sicherheit) |
 | **SMS-Provider** (TBD) | OTP-Versand | Telefonnummer | Art. 6 Abs. 1 lit. a |
 | **Firebase/FCM** | **Nicht verwendet** — APNs direkt | — | — |
 
@@ -137,7 +140,7 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 | Maßnahme | Umsetzung |
 |----------|-----------|
 | Verschlüsselung in Transit | HTTPS (TLS 1.3) via Cloudflare Tunnel |
-| Verschlüsselung at Rest | Standort-Snapshots E2E-verschlüsselt; Passwörter bcrypt-gehasht |
+| Verschlüsselung at Rest | Standort-Snapshots (Datenbank) E2E-verschlüsselt; Passwörter bcrypt-gehasht |
 | Zugriffskontrolle | JWT-Auth für alle API-Endpunkte; Redis nur intern erreichbar |
 | Datensparsamkeit | Geohash statt Koordinaten; Notfallkontakte lokal auf Gerät |
 | Löschkonzept | 30-Tage-Auto-Delete für Alarm-Historie; Redis TTL für Session/Geo-State |
