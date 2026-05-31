@@ -212,9 +212,8 @@ components:
           type: integer
           example: 5
         alarm_id:
-          type: string
+          type: [string, 'null']
           format: uuid
-          nullable: true
         created_at:
           type: string
           format: date-time
@@ -396,6 +395,7 @@ paths:
   /api/v1/auth/signin:
     post:
       tags: [auth]
+      operationId: signIn
       summary: Sign in or create account
       description: |
         Authenticates with Apple, Google, or email/password. Creates an account
@@ -433,6 +433,7 @@ paths:
   /api/v1/auth/refresh:
     post:
       tags: [auth]
+      operationId: refreshToken
       summary: Refresh access token
       security: []
       requestBody:
@@ -467,6 +468,7 @@ paths:
   /api/v1/auth/logout:
     post:
       tags: [auth]
+      operationId: logout
       summary: Invalidate session
       description: Revokes the refresh token. The short-lived access token expires naturally.
       responses:
@@ -478,6 +480,7 @@ paths:
   /api/v1/auth/verify-phone:
     post:
       tags: [auth]
+      operationId: verifyPhone
       summary: Verify phone number via SMS OTP
       description: |
         Two-step flow:
@@ -522,6 +525,7 @@ paths:
   /api/v1/auth/device-token:
     put:
       tags: [auth]
+      operationId: updateDeviceToken
       summary: Register or update APNs device token
       description: |
         Must be called after every sign-in and whenever iOS assigns a new push token.
@@ -553,6 +557,7 @@ paths:
   /api/v1/users/me:
     get:
       tags: [users]
+      operationId: getMe
       summary: Get own profile
       responses:
         '200':
@@ -566,6 +571,7 @@ paths:
 
     patch:
       tags: [users]
+      operationId: updateMe
       summary: Update own profile
       requestBody:
         required: true
@@ -593,6 +599,7 @@ paths:
 
     delete:
       tags: [users]
+      operationId: deleteAccount
       summary: Request account deletion (GDPR Art. 17)
       description: |
         Soft-deletes the account. The record is anonymised immediately and scheduled
@@ -615,6 +622,7 @@ paths:
   /api/v1/users/me/reputation:
     get:
       tags: [users]
+      operationId: getReputation
       summary: Get own reputation score
       responses:
         '200':
@@ -631,6 +639,7 @@ paths:
   /api/v1/contacts:
     get:
       tags: [contacts]
+      operationId: listContacts
       summary: List emergency contacts
       description: Returns all contacts, ordered by `order_in_escalation`.
       responses:
@@ -647,6 +656,7 @@ paths:
 
     post:
       tags: [contacts]
+      operationId: createContact
       summary: Add emergency contact
       requestBody:
         required: true
@@ -690,6 +700,7 @@ paths:
 
     patch:
       tags: [contacts]
+      operationId: updateContact
       summary: Update emergency contact
       requestBody:
         required: true
@@ -721,6 +732,7 @@ paths:
 
     delete:
       tags: [contacts]
+      operationId: deleteContact
       summary: Delete emergency contact
       responses:
         '204':
@@ -735,6 +747,7 @@ paths:
   /api/v1/escalation:
     get:
       tags: [escalation]
+      operationId: getEscalationChain
       summary: Get escalation chain
       responses:
         '200':
@@ -748,6 +761,7 @@ paths:
 
     patch:
       tags: [escalation]
+      operationId: updateEscalationChain
       summary: Update escalation chain
       requestBody:
         required: true
@@ -772,6 +786,7 @@ paths:
   /api/v1/alarms:
     post:
       tags: [alarms]
+      operationId: triggerAlarm
       summary: Trigger alarm (Panic Button)
       description: |
         Triggers an alarm. The server immediately:
@@ -824,6 +839,7 @@ paths:
 
     get:
       tags: [alarms]
+      operationId: getAlarm
       summary: Get alarm details
       description: |
         Returns the alarm state. If the requesting user is a confirmed responder,
@@ -839,8 +855,7 @@ paths:
                   - type: object
                     properties:
                       exact_location:
-                        type: object
-                        nullable: true
+                        type: [object, 'null']
                         description: Only present when the requester is a confirmed responder
                         required: [latitude, longitude]
                         properties:
@@ -857,6 +872,7 @@ paths:
 
     patch:
       tags: [alarms]
+      operationId: updateAlarm
       summary: Update alarm status
       description: Only the alarm owner can update status. Nearby responders are notified via push.
       requestBody:
@@ -897,6 +913,7 @@ paths:
 
     post:
       tags: [alarms]
+      operationId: respondToAlarm
       summary: Respond to alarm ("Ich helfe")
       description: |
         Registers the requesting user as a responder. This:
@@ -941,6 +958,7 @@ paths:
   /api/v1/geohash:
     put:
       tags: [geohash]
+      operationId: updateGeohash
       summary: Update user's location cell
       description: |
         Called when iOS fires `significantLocationChange` (cell tower change,
@@ -969,6 +987,7 @@ paths:
   /api/v1/heartbeat:
     post:
       tags: [heartbeat]
+      operationId: sendHeartbeat
       summary: Send keep-alive signal
       description: |
         Resets the user's Redis TTL. Foundation for the v2.0 Dead Man's Switch —
