@@ -1,1 +1,15 @@
 *.code-workspace
+
+# Environment — never commit secrets
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+venv/
+
+# APNs key
+*.p8
