@@ -68,10 +68,11 @@ Nutzer steuert selbst, wie tief sie sich einbringen.
 
 | Tier | Inhalt |
 |------|--------|
-| **Free** | Panic Button, 1 Notfallkontakt, Dead Man's Switch Basis |
-| **Premium** | Mehrere Kontakte, LoRa-Support, Alarm-History, erweitertes Nearby Alerting |
+| **Free** | Panic Button, unbegrenzte Notfallkontakte, Nearby Alerting |
+| **Premium** | Live-Standort-Sharing (Gruppen), Ankunfts-/Abfahrts-Alerts, Aktivitäts-History |
 
-Genaue Feature-Grenze: noch zu definieren.
+Prinzip: Sicherheit ist immer gratis. Premium ist Komfort und Community (Richtung Life360).
+Details: [docs/features.md](features.md)
 
 ---
 
