@@ -9,3 +9,4 @@
 | [architecture.md](architecture.md) | Stack, iOS Background, Geo-Architektur, Auth, Push, Monitoring, Deployment (Stand: 2026-05-31) |
 | [roadmap.md](roadmap.md) | v1.0–v3.0 Scope, Build-Order, Beta-Strategie, Launch-Kriterien (Stand: 2026-05-31) |
 | [api/openapi.yaml](api/openapi.yaml) | OpenAPI 3.1.0 Contract — alle v1.0 Endpunkte, Schemas, Auth, Fehlerformat (Stand: 2026-05-31) |
+| [dsgvo.md](dsgvo.md) | DSGVO-Entwurf — Datenarten, Zwecke, Fristen, TOMs, offene Punkte vor Launch (Stand: 2026-05-31) |
