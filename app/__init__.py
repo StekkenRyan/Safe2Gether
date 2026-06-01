@@ -23,7 +23,6 @@ def create_app(test_config=None):
     Migrate(app, db)
 
     from . import models  # noqa: F401 — registers models with SQLAlchemy
-
     from .routes import bp
     app.register_blueprint(bp)
 
