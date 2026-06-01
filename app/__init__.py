@@ -35,4 +35,7 @@ def create_app(test_config=None):
     from .geo import bp as geo_bp
     app.register_blueprint(geo_bp)
 
+    from .heartbeat import bp as heartbeat_bp
+    app.register_blueprint(heartbeat_bp)
+
     return app
