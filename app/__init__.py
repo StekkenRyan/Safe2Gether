@@ -32,4 +32,7 @@ def create_app(test_config=None):
     from .users import bp as users_bp
     app.register_blueprint(users_bp)
 
+    from .geo import bp as geo_bp
+    app.register_blueprint(geo_bp)
+
     return app
