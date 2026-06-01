@@ -94,6 +94,19 @@ ServerCode/
 └── CLAUDE.md
 ```
 
+## Code-Qualität & Linting
+
+**Nach jeder Änderung an Python-Dateien** (`app/`, `wsgi.py`) zwingend ausführen — bevor ein Commit vorgeschlagen wird:
+
+```bash
+ruff check app/ wsgi.py          # Lint-Check (E, F, W, I — identisch mit CI)
+ruff check --fix app/ wsgi.py    # Auto-Fix wo möglich
+```
+
+Konfiguration: `pyproject.toml` → `line-length = 100`, `target-version = "py312"`, Regeln `E F W I`.
+
+**Regel**: Kein Python-Code wird committed, wenn `ruff check` Fehler zurückgibt. Alle Verstöße werden im selben Arbeitsschritt behoben — nicht später.
+
 ## Dokumentation & Arbeitsweise
 
 **Vor jeder Implementierung** relevante Docs lesen — nicht aus dem Gedächtnis arbeiten:
