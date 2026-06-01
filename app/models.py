@@ -38,6 +38,11 @@ class User(db.Model):
         db.DateTime, nullable=False, server_default=db.func.now(), onupdate=db.func.now()
     )
 
+    reputation_actions = db.relationship(
+        'ReputationAction', back_populates='user', lazy='dynamic',
+        order_by='ReputationAction.created_at.desc()',
+    )
+
     # Partial unique index: email must be unique within the email provider
     __table_args__ = (
         db.Index('uq_users_email_provider', 'email',
@@ -56,4 +61,27 @@ class User(db.Model):
             'reputation_level': self.reputation_level,
             'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
             'updated_at': self.updated_at.isoformat() + 'Z' if self.updated_at else None,
+        }
+
+
+class ReputationAction(db.Model):
+    __tablename__ = 'reputation_actions'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(
+        db.String(36), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True
+    )
+    action_type = db.Column(db.String(40), nullable=False)  # see ReputationAction schema in OpenAPI
+    score_delta = db.Column(db.Integer, nullable=False)
+    alarm_id = db.Column(db.String(36), nullable=True)      # FK added in alarms migration
+    created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now())
+
+    user = db.relationship('User', back_populates='reputation_actions')
+
+    def to_dict(self) -> dict:
+        return {
+            'action_type': self.action_type,
+            'score_delta': self.score_delta,
+            'alarm_id': self.alarm_id,
+            'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
         }
