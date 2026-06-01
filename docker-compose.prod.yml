@@ -6,19 +6,19 @@
 
 services:
   api:
-    volumes: []  # no bind-mount in production; code is baked into the image
+    volumes: !reset []  # no bind-mount in production; code is baked into the image
     environment:
       FLASK_DEBUG: "0"
     command: gunicorn -w 2 -b 0.0.0.0:5000 --worker-class eventlet wsgi:app
-    ports: []  # cloudflared handles all ingress; no direct port exposure
+    ports: !reset []  # cloudflared handles all ingress; no direct port exposure
     restart: always
 
   redis:
-    ports: []  # not exposed externally; only reachable inside docker network
+    ports: !reset []  # not exposed externally; only reachable inside docker network
     restart: always
 
   postgres:
-    ports: []  # not exposed externally; Flask connects via docker network
+    ports: !reset []  # not exposed externally; Flask connects via docker network
     restart: always
 
   cloudflared:
