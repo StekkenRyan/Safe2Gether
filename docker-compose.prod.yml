@@ -1,0 +1,31 @@
+# Production overlay — used together with docker-compose.yml:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Each node needs its own .env with:
+#   NODE_ID, DATABASE_URL, POSTGRES_PASSWORD, CF_TUNNEL_TOKEN
+
+services:
+  api:
+    volumes: []  # no bind-mount in production; code is baked into the image
+    environment:
+      FLASK_DEBUG: "0"
+    command: gunicorn -w 2 -b 0.0.0.0:5000 --worker-class eventlet wsgi:app
+    ports: []  # cloudflared handles all ingress; no direct port exposure
+    restart: always
+
+  redis:
+    ports: []  # not exposed externally; only reachable inside docker network
+    restart: always
+
+  postgres:
+    ports: []  # not exposed externally; Flask connects via docker network
+    restart: always
+
+  cloudflared:
+    image: cloudflare/cloudflared:latest
+    command: tunnel --no-autoupdate run
+    environment:
+      TUNNEL_TOKEN: ${CF_TUNNEL_TOKEN}
+    restart: always
+    depends_on:
+      - api
