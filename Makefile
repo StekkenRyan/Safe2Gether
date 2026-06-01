@@ -1,4 +1,8 @@
-.PHONY: dev prod down migrate migrate-create shell psql logs backup build
+PYTHON := $(shell command -v python3.12 2>/dev/null || command -v python3 2>/dev/null)
+VENV   := .venv
+
+.PHONY: dev prod down migrate migrate-create shell psql logs backup build \
+        lint lint-fix lint-openapi test check install-dev install-hooks
 
 # ─── Development ──────────────────────────────────────────────────────────────
 
@@ -61,3 +65,36 @@ health:
 
 backup:
 	./scripts/backup.sh
+
+# ─── Local Checks (identisch mit CI) ─────────────────────────────────────────
+
+$(VENV)/.installed: requirements.txt requirements-dev.txt
+	$(PYTHON) -m venv $(VENV)
+	$(VENV)/bin/pip install -q -r requirements.txt -r requirements-dev.txt
+	@touch $@
+
+install-dev: $(VENV)/.installed
+
+lint:
+	ruff check app/ wsgi.py
+
+lint-fix:
+	ruff check --fix app/ wsgi.py
+
+lint-openapi:
+	@if command -v npx >/dev/null 2>&1; then \
+	  npx --yes @redocly/cli lint docs/api/openapi.yaml; \
+	else \
+	  echo "⚠  npx nicht gefunden — OpenAPI-Lint übersprungen (wird in CI geprüft)"; \
+	  echo "   Node.js installieren: brew install node"; \
+	fi
+
+test: $(VENV)/.installed
+	$(VENV)/bin/pytest tests/ -v
+
+check: lint lint-openapi test
+
+install-hooks:
+	cp scripts/pre-push-hook .git/hooks/pre-push
+	chmod +x .git/hooks/pre-push
+	@echo "pre-push hook installed — 'make check' runs before every push"

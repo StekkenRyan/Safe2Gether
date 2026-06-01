@@ -1,16 +1,22 @@
-"""Geohash / Nearby Alerting blueprint — /api/v1/geohash"""
+"""Geohash / Nearby Alerting blueprint — /api/v1/geohash
+
+Redis data model (cell-based sets — avoids full SCAN):
+  user_geo:<user_id>   → current H3 cell string      (SETEX, per-user TTL)
+  geo_cell:<geohash>   → SET of user_ids in that cell (no TTL; lazy cleanup on read)
+"""
 import os
 
 import h3
 import redis as redis_lib
 from flask import Blueprint, g, jsonify, request
 
+from .redis_keys import GEO_CELL, GEO_USER
 from .token import require_auth
 
 bp = Blueprint('geo', __name__, url_prefix='/api/v1')
 
-_GEO_TTL = 600          # 10 min — user considered offline after this
-_GEO_KEY = 'user_geo:'  # + user_id
+_GEO_TTL = 600              # 10 min base TTL
+_MAX_OFFLINE_SECS = 604800  # 7 days absolute cap
 
 
 def _redis() -> redis_lib.Redis:
@@ -21,29 +27,39 @@ def _redis() -> redis_lib.Redis:
     )
 
 
-def nearby_user_ids(geohash: str, ring_size: int = 1) -> list[str]:
-    """Return user IDs of active users in H3 cells neighbouring `geohash`.
+def _update_user_geo(r: redis_lib.Redis, user_id: str, geohash: str, ttl: int) -> None:
+    """Atomically move user from old cell set to new one, then set geo key."""
+    old = r.get(f'{GEO_USER}{user_id}')
+    pipe = r.pipeline()
+    if old and old != geohash:
+        pipe.srem(f'{GEO_CELL}{old}', user_id)
+    pipe.setex(f'{GEO_USER}{user_id}', ttl, geohash)
+    pipe.sadd(f'{GEO_CELL}{geohash}', user_id)
+    pipe.execute()
 
-    Queries Redis for all user_geo:* keys in the geohash and its k-ring.
-    Used by the alarm endpoint to find who to alert.
+
+def nearby_user_ids(geohash: str, ring_size: int = 1) -> list[str]:
+    """Return IDs of users currently active in the H3 k-ring around geohash.
+
+    Uses cell-based sets (O(users_in_cells)) instead of a full Redis SCAN.
+    Stale members (expired GEO_USER keys) are lazily removed.
     """
     try:
         r = _redis()
         neighbors = h3.grid_disk(geohash, ring_size)
-        user_ids = []
+        active: set[str] = set()
+        stale_cleanup = r.pipeline()
+
         for cell in neighbors:
-            # Scan for all users currently in this cell
-            # Keys are stored as user_geo:<user_id> → <geohash>
-            cursor = 0
-            while True:
-                cursor, keys = r.scan(cursor, match=f'{_GEO_KEY}*', count=200)
-                for key in keys:
-                    val = r.get(key)
-                    if val == cell:
-                        user_ids.append(key[len(_GEO_KEY):])
-                if cursor == 0:
-                    break
-        return list(set(user_ids))
+            candidates = r.smembers(f'{GEO_CELL}{cell}')
+            for uid in candidates:
+                if r.exists(f'{GEO_USER}{uid}'):
+                    active.add(uid)
+                else:
+                    stale_cleanup.srem(f'{GEO_CELL}{cell}', uid)
+
+        stale_cleanup.execute()
+        return list(active)
     except redis_lib.RedisError:
         return []
 
@@ -51,10 +67,10 @@ def nearby_user_ids(geohash: str, ring_size: int = 1) -> list[str]:
 @bp.put('/geohash')
 @require_auth
 def update_geohash():
-    """Store the user's H3 cell in Redis with a TTL.
+    """Store the user's H3 cell in Redis.
 
-    When status is 'expected_offline', the TTL is extended by offline_duration_seconds
-    so entering a tunnel/dead zone doesn't trigger a false DMS escalation.
+    expected_offline extends the TTL by offline_duration_seconds so entering
+    a tunnel / dead zone doesn't trigger a false DMS escalation.
     """
     data = request.get_json(silent=True) or {}
     geohash = data.get('geohash', '').strip()
@@ -76,12 +92,15 @@ def update_geohash():
     ttl = _GEO_TTL
     if status == 'expected_offline':
         offline_secs = data.get('offline_duration_seconds', 0)
-        if not isinstance(offline_secs, int) or offline_secs < 0:
-            return jsonify({'error': 'Bad Request', 'code': 'INVALID_OFFLINE_DURATION'}), 400
+        if not isinstance(offline_secs, int) or not (0 <= offline_secs <= _MAX_OFFLINE_SECS):
+            return jsonify({
+                'error': 'Bad Request', 'code': 'INVALID_OFFLINE_DURATION',
+                'detail': f'offline_duration_seconds must be 0–{_MAX_OFFLINE_SECS}',
+            }), 400
         ttl += offline_secs
 
     try:
-        _redis().setex(f'{_GEO_KEY}{g.user_id}', ttl, geohash)
+        _update_user_geo(_redis(), g.user_id, geohash, ttl)
     except redis_lib.RedisError as exc:
         return jsonify({'error': 'Service Unavailable', 'code': 'REDIS_ERROR',
                         'detail': str(exc)}), 503

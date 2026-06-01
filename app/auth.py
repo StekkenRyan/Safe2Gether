@@ -4,7 +4,9 @@ Single sign-in endpoint for all three providers (Apple / Google / Email).
 First call creates the account; subsequent calls return the existing one.
 """
 import json
+import logging
 import os
+import re
 
 import bcrypt
 import httpx
@@ -15,6 +17,7 @@ from jwt.algorithms import RSAAlgorithm
 
 from .db import db
 from .models import User
+from .redis_keys import JWKS_APPLE, JWKS_GOOGLE
 from .token import (
     ACCESS_TTL,
     create_access_token,
@@ -24,15 +27,17 @@ from .token import (
     revoke_refresh_token,
 )
 
+logger = logging.getLogger(__name__)
 bp = Blueprint('auth', __name__, url_prefix='/api/v1/auth')
-
-# ─── JWKS helpers ─────────────────────────────────────────────────────────────
 
 _APPLE_JWKS_URL = 'https://appleid.apple.com/auth/keys'
 _APPLE_ISSUER = 'https://appleid.apple.com'
 _GOOGLE_JWKS_URL = 'https://www.googleapis.com/oauth2/v3/certs'
 _GOOGLE_ISSUER = 'https://accounts.google.com'
 _JWKS_CACHE_TTL = 43200  # 12 hours
+
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$')
+_APNS_TOKEN_RE = re.compile(r'^[a-f0-9]{64}$', re.IGNORECASE)
 
 
 def _redis_client() -> redis_lib.Redis:
@@ -43,8 +48,7 @@ def _redis_client() -> redis_lib.Redis:
 def _get_jwks(url: str, cache_key: str) -> dict:
     """Fetch JWKS from URL, caching the result in Redis."""
     try:
-        r = _redis_client()
-        cached = r.get(cache_key)
+        cached = _redis_client().get(cache_key)
         if cached:
             return json.loads(cached)
     except (redis_lib.RedisError, json.JSONDecodeError):
@@ -63,7 +67,6 @@ def _get_jwks(url: str, cache_key: str) -> dict:
 
 
 def _public_key_for(jwks: dict, kid: str):
-    """Find and deserialize the RSA public key matching `kid`."""
     for key_data in jwks.get('keys', []):
         if key_data.get('kid') == kid:
             return RSAAlgorithm.from_jwk(key_data)
@@ -71,68 +74,54 @@ def _public_key_for(jwks: dict, kid: str):
 
 
 def _verify_apple_token(id_token: str) -> dict:
-    """Verify Apple identity token; return verified claims."""
     bundle_id = os.environ.get('APNS_BUNDLE_ID', 'com.safe2gether.app')
     header = pyjwt.get_unverified_header(id_token)
     kid = header.get('kid')
 
-    jwks = _get_jwks(_APPLE_JWKS_URL, 'jwks:apple')
+    jwks = _get_jwks(_APPLE_JWKS_URL, JWKS_APPLE)
     public_key = _public_key_for(jwks, kid)
-
     if public_key is None:
-        # Key may have rotated — bust the cache and retry once
+        # Key may have rotated — bust cache and retry once
         try:
-            _redis_client().delete('jwks:apple')
+            _redis_client().delete(JWKS_APPLE)
         except redis_lib.RedisError:
             pass
-        jwks = _get_jwks(_APPLE_JWKS_URL, 'jwks:apple')
+        jwks = _get_jwks(_APPLE_JWKS_URL, JWKS_APPLE)
         public_key = _public_key_for(jwks, kid)
-
     if public_key is None:
-        raise ValueError('Apple public key not found for kid: ' + str(kid))
+        raise ValueError('Apple public key not found')
 
     return pyjwt.decode(
-        id_token,
-        public_key,
-        algorithms=['RS256'],
-        audience=bundle_id,
-        issuer=_APPLE_ISSUER,
+        id_token, public_key, algorithms=['RS256'],
+        audience=bundle_id, issuer=_APPLE_ISSUER,
     )
 
 
 def _verify_google_token(id_token: str) -> dict:
-    """Verify Google ID token; return verified claims."""
     client_id = os.environ.get('GOOGLE_CLIENT_ID', '')
     header = pyjwt.get_unverified_header(id_token)
     kid = header.get('kid')
 
-    jwks = _get_jwks(_GOOGLE_JWKS_URL, 'jwks:google')
+    jwks = _get_jwks(_GOOGLE_JWKS_URL, JWKS_GOOGLE)
     public_key = _public_key_for(jwks, kid)
-
     if public_key is None:
         try:
-            _redis_client().delete('jwks:google')
+            _redis_client().delete(JWKS_GOOGLE)
         except redis_lib.RedisError:
             pass
-        jwks = _get_jwks(_GOOGLE_JWKS_URL, 'jwks:google')
+        jwks = _get_jwks(_GOOGLE_JWKS_URL, JWKS_GOOGLE)
         public_key = _public_key_for(jwks, kid)
-
     if public_key is None:
-        raise ValueError('Google public key not found for kid: ' + str(kid))
+        raise ValueError('Google public key not found')
 
     return pyjwt.decode(
-        id_token,
-        public_key,
-        algorithms=['RS256'],
-        audience=client_id,
-        issuer=_GOOGLE_ISSUER,
+        id_token, public_key, algorithms=['RS256'],
+        audience=client_id, issuer=_GOOGLE_ISSUER,
     )
 
 
-# ─── Auth response helper ─────────────────────────────────────────────────────
-
 def _auth_response(user: User) -> tuple:
-    db.session.refresh(user)  # ensure server_default timestamps are loaded
+    db.session.refresh(user)
     return jsonify({
         'access_token': create_access_token(user.id),
         'refresh_token': create_refresh_token(user.id),
@@ -141,8 +130,6 @@ def _auth_response(user: User) -> tuple:
         'user': user.to_dict(),
     }), 200
 
-
-# ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @bp.post('/signin')
 def signin():
@@ -159,21 +146,16 @@ def signin():
         id_token = data.get('id_token')
         if not id_token:
             return jsonify({'error': 'Bad Request', 'code': 'MISSING_ID_TOKEN'}), 400
-
         try:
             claims = _verify_apple_token(id_token)
-        except (pyjwt.PyJWTError, ValueError, httpx.HTTPError) as exc:
-            return jsonify({'error': 'Unauthorized', 'code': 'INVALID_ID_TOKEN',
-                            'detail': str(exc)}), 401
+        except (pyjwt.PyJWTError, ValueError, httpx.HTTPError):
+            logger.warning('Apple token verification failed')
+            return jsonify({'error': 'Unauthorized', 'code': 'INVALID_ID_TOKEN'}), 401
 
         apple_sub = claims['sub']
         user = User.query.filter_by(apple_sub=apple_sub).first()
         if user is None:
-            user = User(
-                apple_sub=apple_sub,
-                email=claims.get('email'),
-                auth_provider='apple',
-            )
+            user = User(apple_sub=apple_sub, email=claims.get('email'), auth_provider='apple')
             db.session.add(user)
             db.session.commit()
 
@@ -182,21 +164,16 @@ def signin():
         id_token = data.get('id_token')
         if not id_token:
             return jsonify({'error': 'Bad Request', 'code': 'MISSING_ID_TOKEN'}), 400
-
         try:
             claims = _verify_google_token(id_token)
-        except (pyjwt.PyJWTError, ValueError, httpx.HTTPError) as exc:
-            return jsonify({'error': 'Unauthorized', 'code': 'INVALID_ID_TOKEN',
-                            'detail': str(exc)}), 401
+        except (pyjwt.PyJWTError, ValueError, httpx.HTTPError):
+            logger.warning('Google token verification failed')
+            return jsonify({'error': 'Unauthorized', 'code': 'INVALID_ID_TOKEN'}), 401
 
         google_sub = claims['sub']
         user = User.query.filter_by(google_sub=google_sub).first()
         if user is None:
-            user = User(
-                google_sub=google_sub,
-                email=claims.get('email'),
-                auth_provider='google',
-            )
+            user = User(google_sub=google_sub, email=claims.get('email'), auth_provider='google')
             db.session.add(user)
             db.session.commit()
 
@@ -207,6 +184,8 @@ def signin():
 
         if not email or not password:
             return jsonify({'error': 'Bad Request', 'code': 'MISSING_CREDENTIALS'}), 400
+        if not _EMAIL_RE.match(email):
+            return jsonify({'error': 'Bad Request', 'code': 'INVALID_EMAIL'}), 400
         if len(password) < 8:
             return jsonify({'error': 'Bad Request', 'code': 'PASSWORD_TOO_SHORT',
                             'detail': 'Password must be at least 8 characters.'}), 400
@@ -229,10 +208,8 @@ def signin():
 
 @bp.post('/refresh')
 def refresh():
-    """Issue a new access token using a valid refresh token."""
     data = request.get_json(silent=True) or {}
     refresh_token = data.get('refresh_token')
-
     if not refresh_token:
         return jsonify({'error': 'Unauthorized', 'code': 'MISSING_REFRESH_TOKEN'}), 401
 
@@ -240,16 +217,12 @@ def refresh():
     if not user_id:
         return jsonify({'error': 'Unauthorized', 'code': 'INVALID_REFRESH_TOKEN'}), 401
 
-    return jsonify({
-        'access_token': create_access_token(user_id),
-        'expires_in': ACCESS_TTL,
-    }), 200
+    return jsonify({'access_token': create_access_token(user_id), 'expires_in': ACCESS_TTL}), 200
 
 
 @bp.post('/logout')
 @require_auth
 def logout():
-    """Revoke the refresh token. The short-lived access token expires naturally."""
     data = request.get_json(silent=True) or {}
     refresh_token = data.get('refresh_token')
     if refresh_token:
@@ -260,16 +233,17 @@ def logout():
 @bp.put('/device-token')
 @require_auth
 def update_device_token():
-    """Register or update the APNs device token for push notifications."""
     data = request.get_json(silent=True) or {}
-    device_token = data.get('device_token')
+    device_token = data.get('device_token') or ''
     environment = data.get('environment')
 
-    if not device_token or environment not in ('sandbox', 'production'):
+    if not _APNS_TOKEN_RE.match(device_token):
         return jsonify({
-            'error': 'Bad Request', 'code': 'INVALID_REQUEST',
-            'detail': 'device_token and environment (sandbox|production) required.',
+            'error': 'Bad Request', 'code': 'INVALID_DEVICE_TOKEN',
+            'detail': 'device_token must be a 64-character hex string',
         }), 400
+    if environment not in ('sandbox', 'production'):
+        return jsonify({'error': 'Bad Request', 'code': 'INVALID_ENVIRONMENT'}), 400
 
     user = db.session.get(User, g.user_id)
     if not user:

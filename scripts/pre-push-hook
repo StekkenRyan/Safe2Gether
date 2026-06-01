@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# Git pre-push hook — führt dieselben Checks aus wie die GitHub Actions CI.
+# Installation: make install-hooks
+set -euo pipefail
+
+echo "▶ pre-push: lint + openapi + tests ..."
+make check
+echo "✓ alle Checks bestanden"

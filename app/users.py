@@ -1,4 +1,5 @@
 """User profile blueprint — /api/v1/users/me"""
+import re
 from datetime import datetime, timedelta, timezone
 
 from flask import Blueprint, g, jsonify, request
@@ -10,13 +11,20 @@ from .token import require_auth
 bp = Blueprint('users', __name__, url_prefix='/api/v1/users')
 
 _DELETION_GRACE_DAYS = 30
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$')
+_PHONE_RE = re.compile(r'^\+?[0-9]{7,15}$')
+
+
+def _get_active_user(user_id: str) -> User | None:
+    user = db.session.get(User, user_id)
+    return user if (user and user.is_active) else None
 
 
 @bp.get('/me')
 @require_auth
 def get_me():
-    user = db.session.get(User, g.user_id)
-    if not user or not user.is_active:
+    user = _get_active_user(g.user_id)
+    if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
     return jsonify(user.to_dict())
 
@@ -24,8 +32,8 @@ def get_me():
 @bp.patch('/me')
 @require_auth
 def update_me():
-    user = db.session.get(User, g.user_id)
-    if not user or not user.is_active:
+    user = _get_active_user(g.user_id)
+    if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
 
     data = request.get_json(silent=True) or {}
@@ -33,15 +41,34 @@ def update_me():
 
     if 'email' in data:
         email = (data['email'] or '').lower().strip()
-        if not email:
+        if not email or not _EMAIL_RE.match(email):
             return jsonify({'error': 'Bad Request', 'code': 'INVALID_EMAIL'}), 400
+        # Prevent email collision within the email provider
+        if user.auth_provider == 'email':
+            clash = User.query.filter(
+                User.email == email,
+                User.auth_provider == 'email',
+                User.id != g.user_id,
+            ).first()
+            if clash:
+                return jsonify({'error': 'Conflict', 'code': 'EMAIL_IN_USE'}), 409
         user.email = email
         changed = True
 
     if 'phone_number' in data:
-        user.phone_number = data['phone_number'] or None
-        # Changing the number invalidates the previous verification
+        phone = (data['phone_number'] or '').strip() or None
+        if phone and not _PHONE_RE.match(phone):
+            return jsonify({'error': 'Bad Request', 'code': 'INVALID_PHONE'}), 400
+        user.phone_number = phone
         user.phone_verified = False
+        changed = True
+
+    if 'nearby_alerting_enabled' in data:
+        val = data['nearby_alerting_enabled']
+        if not isinstance(val, bool):
+            return jsonify({'error': 'Bad Request', 'code': 'INVALID_VALUE',
+                            'detail': 'nearby_alerting_enabled must be a boolean'}), 400
+        user.nearby_alerting_enabled = val
         changed = True
 
     if not changed:
@@ -56,13 +83,13 @@ def update_me():
 @require_auth
 def delete_me():
     """GDPR Art. 17 — soft-delete with immediate PII anonymisation."""
-    user = db.session.get(User, g.user_id)
-    if not user or not user.is_active:
+    user = _get_active_user(g.user_id)
+    if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
 
     deletion_at = datetime.now(timezone.utc) + timedelta(days=_DELETION_GRACE_DAYS)
 
-    # Anonymise PII immediately
+    # Anonymise all PII immediately
     user.email = None
     user.password_hash = None
     user.apple_sub = None
@@ -76,7 +103,6 @@ def delete_me():
     user.scheduled_deletion_at = deletion_at
 
     db.session.commit()
-
     return jsonify({
         'scheduled_deletion_at': deletion_at.isoformat().replace('+00:00', 'Z'),
     }), 202
@@ -85,12 +111,11 @@ def delete_me():
 @bp.get('/me/reputation')
 @require_auth
 def get_reputation():
-    user = db.session.get(User, g.user_id)
-    if not user or not user.is_active:
+    user = _get_active_user(g.user_id)
+    if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
 
     recent = user.reputation_actions.limit(20).all()
-
     return jsonify({
         'score': user.reputation_score,
         'level': user.reputation_level,

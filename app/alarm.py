@@ -1,19 +1,24 @@
 """Alarm (Panic Button) blueprint — /api/v1/alarms"""
+import logging
 import os
 import uuid
 
+import h3
 import redis as redis_lib
 from flask import Blueprint, g, jsonify, request
+from sqlalchemy.exc import IntegrityError
 
 from .db import db
 from .geo import nearby_user_ids
 from .models import Alarm, AlarmResponder, User
 from .notifications import send_alarm_update, send_nearby_alert
+from .redis_keys import ALARM_RATE, GEO_USER
 from .token import require_auth
 
+logger = logging.getLogger(__name__)
 bp = Blueprint('alarms', __name__, url_prefix='/api/v1/alarms')
 
-_GEO_KEY = 'user_geo:'
+_ALARM_RATE_LIMIT_SECS = 60   # max 1 alarm per user per minute
 
 
 def _redis() -> redis_lib.Redis:
@@ -26,9 +31,19 @@ def _redis() -> redis_lib.Redis:
 
 def _user_geohash(user_id: str) -> str | None:
     try:
-        return _redis().get(f'{_GEO_KEY}{user_id}')
+        return _redis().get(f'{GEO_USER}{user_id}')
     except redis_lib.RedisError:
         return None
+
+
+def _check_rate_limit(user_id: str) -> bool:
+    """Return True if within limit, False if rate limited (1 alarm / 60 s)."""
+    try:
+        result = _redis().set(f'{ALARM_RATE}{user_id}', '1',
+                              nx=True, ex=_ALARM_RATE_LIMIT_SECS)
+        return result is not None
+    except redis_lib.RedisError:
+        return True  # Fail open: never block a real emergency due to Redis outage
 
 
 # ─── Create alarm ─────────────────────────────────────────────────────────────
@@ -48,14 +63,19 @@ def trigger_alarm():
     if not user or not user.is_active:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
 
-    # Geohash: prefer client-provided snapshot, fall back to Redis cached value
-    geohash = (data.get('geohash_snapshot') or '').strip() or _user_geohash(g.user_id)
+    if not _check_rate_limit(g.user_id):
+        return jsonify({
+            'error': 'Too Many Requests', 'code': 'ALARM_RATE_LIMIT',
+            'detail': f'Maximum 1 alarm per {_ALARM_RATE_LIMIT_SECS} seconds.',
+        }), 429
 
-    # Idempotency: client may retry — if alarm_id already exists, return existing record
-    alarm_id = data.get('alarm_id') or str(uuid.uuid4())
-    existing = db.session.get(Alarm, alarm_id)
-    if existing:
-        return jsonify(existing.to_dict()), 201
+    # Geohash: client-provided snapshot is preferred; fall back to Redis cached value
+    geohash_snapshot = (data.get('geohash_snapshot') or '').strip()
+    if geohash_snapshot and not h3.is_valid_cell(geohash_snapshot):
+        return jsonify({'error': 'Bad Request', 'code': 'INVALID_GEOHASH'}), 400
+    geohash = geohash_snapshot or _user_geohash(g.user_id)
+
+    alarm_id = str(uuid.uuid4())  # Always server-generated — no client-provided IDs
 
     alarm = Alarm(
         id=alarm_id,
@@ -67,12 +87,13 @@ def trigger_alarm():
     )
     db.session.add(alarm)
     db.session.commit()
+    logger.info('alarm_triggered user=%s alarm=%s source=%s geohash=%s',
+                g.user_id, alarm_id, trigger_source, geohash)
 
-    # Notify emergency contacts (non-blocking)
+    # Notify emergency contacts (non-blocking, fire-and-forget)
     contacts = user.emergency_contacts.all()
     for contact in contacts:
         if contact.contact_type == 'in_app':
-            # Find the in-app contact user and push to their device
             contact_user = db.session.get(User, contact.contact_value)
             if contact_user and contact_user.apns_device_token:
                 send_alarm_update(
@@ -84,18 +105,20 @@ def trigger_alarm():
 
     # Notify nearby community users (non-blocking)
     if geohash:
-        nearby_ids = nearby_user_ids(geohash)
-        nearby_ids = [uid for uid in nearby_ids if uid != g.user_id]
-        for nearby_id in nearby_ids:
-            nearby_user = db.session.get(User, nearby_id)
-            if not nearby_user or not nearby_user.apns_device_token:
+        nearby_ids = [uid for uid in nearby_user_ids(geohash) if uid != g.user_id]
+        # Batch-load nearby users to avoid N+1
+        nearby_users = {u.id: u for u in User.query.filter(User.id.in_(nearby_ids)).all()}
+        for uid in nearby_ids:
+            nu = nearby_users.get(uid)
+            if not nu or not nu.apns_device_token:
                 continue
-            # Reputation check: low-reputation users don't receive community alerts
-            if nearby_user.reputation_level == 'very_low':
+            if not nu.nearby_alerting_enabled:
+                continue
+            if nu.reputation_level == 'very_low':
                 continue
             send_nearby_alert(
-                nearby_user.apns_device_token,
-                nearby_user.apns_environment or 'sandbox',
+                nu.apns_device_token,
+                nu.apns_environment or 'sandbox',
                 alarm_id,
                 direction='In deiner Nähe',
                 distance_m=500,
@@ -118,10 +141,14 @@ def get_alarm(alarm_id: str):
     is_responder = alarm.responders.filter_by(user_id=g.user_id).first() is not None
 
     if not is_owner and not is_responder:
-        # Only owner and confirmed responders can see the alarm
         return jsonify({'error': 'Not Found', 'code': 'ALARM_NOT_FOUND'}), 404
 
-    return jsonify(alarm.to_dict(include_exact_location=is_responder and not is_owner))
+    include_exact = is_responder and not is_owner
+    if include_exact and alarm.exact_latitude is not None:
+        logger.info('exact_coords_accessed alarm=%s by user=%s role=responder',
+                    alarm_id, g.user_id)
+
+    return jsonify(alarm.to_dict(include_exact_location=include_exact))
 
 
 # ─── Update alarm status ──────────────────────────────────────────────────────
@@ -142,12 +169,14 @@ def update_alarm(alarm_id: str):
 
     alarm.status = new_status
     db.session.commit()
+    logger.info('alarm_updated alarm=%s status=%s by user=%s', alarm_id, new_status, g.user_id)
 
-    # Notify all responders
+    # Notify all responders (batch-load to avoid N+1)
+    responder_ids = [r.user_id for r in alarm.responders.all()]
+    responder_users = User.query.filter(User.id.in_(responder_ids)).all()
     msg = 'Alarm aufgehoben' if new_status == 'resolved' else 'Fehlalarm gemeldet'
-    for responder in alarm.responders.all():
-        ruser = db.session.get(User, responder.user_id)
-        if ruser and ruser.apns_device_token:
+    for ruser in responder_users:
+        if ruser.apns_device_token:
             send_alarm_update(ruser.apns_device_token,
                               ruser.apns_environment or 'sandbox', alarm_id, msg)
 
@@ -165,15 +194,17 @@ def respond_to_alarm(alarm_id: str):
     if alarm.user_id == g.user_id:
         return jsonify({'error': 'Bad Request', 'code': 'CANNOT_RESPOND_OWN_ALARM'}), 400
 
-    already = alarm.responders.filter_by(user_id=g.user_id).first()
-    if already:
+    try:
+        responder = AlarmResponder(alarm_id=alarm_id, user_id=g.user_id)
+        db.session.add(responder)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
         return jsonify({'error': 'Conflict', 'code': 'ALREADY_RESPONDING'}), 409
 
-    responder = AlarmResponder(alarm_id=alarm_id, user_id=g.user_id)
-    db.session.add(responder)
-    db.session.commit()
+    logger.info('alarm_response alarm=%s responder=%s', alarm_id, g.user_id)
 
-    # Notify alarm owner that help is on the way
+    # Notify alarm owner
     owner = db.session.get(User, alarm.user_id)
     if owner and owner.apns_device_token:
         send_alarm_update(owner.apns_device_token,
@@ -186,8 +217,7 @@ def respond_to_alarm(alarm_id: str):
             'latitude': alarm.exact_latitude,
             'longitude': alarm.exact_longitude,
         }
+        logger.info('exact_coords_accessed alarm=%s by user=%s role=responder',
+                    alarm_id, g.user_id)
 
-    return jsonify({
-        'alarm_id': alarm_id,
-        'exact_location': location_data,
-    })
+    return jsonify({'alarm_id': alarm_id, 'exact_location': location_data})

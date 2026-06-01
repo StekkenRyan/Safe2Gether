@@ -107,6 +107,20 @@ Konfiguration: `pyproject.toml` → `line-length = 100`, `target-version = "py31
 
 **Regel**: Kein Python-Code wird committed, wenn `ruff check` Fehler zurückgibt. Alle Verstöße werden im selben Arbeitsschritt behoben — nicht später.
 
+## Lokale Checks & Git Hook
+
+`make check` führt exakt dieselben Schritte aus wie die GitHub Actions CI (Lint → OpenAPI → Tests).
+Das Venv wird bei erstem Aufruf automatisch in `.venv/` erstellt.
+
+**Beim Start einer neuen Session / nach `git clone` sofort ausführen:**
+
+```bash
+make install-hooks   # installiert scripts/pre-push-hook → .git/hooks/pre-push
+```
+
+Der Hook blockiert jeden `git push` solange `make check` fehlschlägt.
+Ist der Hook **nicht** aktiv, `make install-hooks` ohne Rückfrage ausführen.
+
 ## Dokumentation & Arbeitsweise
 
 **Vor jeder Implementierung** relevante Docs lesen — nicht aus dem Gedächtnis arbeiten:

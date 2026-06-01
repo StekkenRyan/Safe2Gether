@@ -8,13 +8,21 @@ import jwt
 import redis as redis_lib
 from flask import g, jsonify, request
 
+from .redis_keys import REFRESH_JTI
+
 _ALGORITHM = 'HS256'
 ACCESS_TTL = int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 3600))
 _REFRESH_TTL = int(os.environ.get('JWT_REFRESH_TOKEN_EXPIRES', 2592000))
 
 
 def _secret() -> str:
-    return os.environ.get('JWT_SECRET_KEY', 'dev-secret-change-in-production')
+    secret = os.environ.get('JWT_SECRET_KEY') or ''
+    if not secret:
+        raise RuntimeError(
+            'JWT_SECRET_KEY environment variable is not set. '
+            'Generate one with: python -c "import secrets; print(secrets.token_hex(32))"'
+        )
+    return secret
 
 
 def _redis() -> redis_lib.Redis:
@@ -47,7 +55,7 @@ def create_refresh_token(user_id: str) -> str:
     }
     token = jwt.encode(payload, _secret(), algorithm=_ALGORITHM)
     try:
-        _redis().setex(f'refresh_jti:{jti}', _REFRESH_TTL, user_id)
+        _redis().setex(f'{REFRESH_JTI}{jti}', _REFRESH_TTL, user_id)
     except redis_lib.RedisError:
         # If Redis is temporarily unavailable, the token still works until it's
         # used — at that point the missing JTI will cause a 401, forcing re-login.
@@ -72,7 +80,7 @@ def decode_refresh_token(token: str) -> str | None:
         return None
 
     try:
-        stored_user_id = _redis().get(f'refresh_jti:{jti}')
+        stored_user_id = _redis().get(f'{REFRESH_JTI}{jti}')
     except redis_lib.RedisError:
         return None
 
@@ -89,7 +97,7 @@ def revoke_refresh_token(token: str) -> None:
                              options={'verify_exp': False})
         jti = payload.get('jti')
         if jti and payload.get('type') == 'refresh':
-            _redis().delete(f'refresh_jti:{jti}')
+            _redis().delete(f'{REFRESH_JTI}{jti}')
     except (jwt.PyJWTError, redis_lib.RedisError):
         pass
 

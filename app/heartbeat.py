@@ -1,21 +1,16 @@
-"""Heartbeat blueprint — POST /api/v1/heartbeat
-
-Keep-alive signal. Resets the user's Redis TTL.
-Foundation for the v2.0 Dead Man's Switch: when the TTL expires without a
-heartbeat and no expected_offline grace period is active, the server will
-initiate escalation. In v1.0 this is informational only.
-"""
+"""Heartbeat blueprint — POST /api/v1/heartbeat"""
 import os
 
 import redis as redis_lib
 from flask import Blueprint, g, jsonify, request
 
+from .redis_keys import HB
 from .token import require_auth
 
 bp = Blueprint('heartbeat', __name__, url_prefix='/api/v1')
 
-_HEARTBEAT_TTL = 600        # 10 min — matches geo TTL
-_HEARTBEAT_KEY = 'user_hb:'  # + user_id
+_HEARTBEAT_TTL = 600        # 10 min base TTL
+_MAX_OFFLINE_SECS = 604800  # 7 days absolute cap
 
 
 def _redis() -> redis_lib.Redis:
@@ -41,12 +36,15 @@ def send_heartbeat():
     ttl = _HEARTBEAT_TTL
     if status == 'expected_offline':
         offline_secs = data.get('offline_duration_seconds', 0)
-        if not isinstance(offline_secs, int) or offline_secs < 0:
-            return jsonify({'error': 'Bad Request', 'code': 'INVALID_OFFLINE_DURATION'}), 400
+        if not isinstance(offline_secs, int) or not (0 <= offline_secs <= _MAX_OFFLINE_SECS):
+            return jsonify({
+                'error': 'Bad Request', 'code': 'INVALID_OFFLINE_DURATION',
+                'detail': f'offline_duration_seconds must be 0–{_MAX_OFFLINE_SECS}',
+            }), 400
         ttl += offline_secs
 
     try:
-        _redis().setex(f'{_HEARTBEAT_KEY}{g.user_id}', ttl, status)
+        _redis().setex(f'{HB}{g.user_id}', ttl, status)
     except redis_lib.RedisError as exc:
         return jsonify({'error': 'Service Unavailable', 'code': 'REDIS_ERROR',
                         'detail': str(exc)}), 503
