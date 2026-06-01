@@ -59,7 +59,10 @@ logs-all:
 	docker compose logs -f
 
 health:
-	curl -s http://localhost:5000/api/v1/health | python3 -m json.tool
+	docker compose exec api python3 -c \
+	  "import urllib.request, json; \
+	   d = urllib.request.urlopen('http://localhost:5000/api/v1/health').read(); \
+	   print(json.dumps(json.loads(d), indent=2))"
 
 # ─── Backup ───────────────────────────────────────────────────────────────────
 
