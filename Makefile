@@ -19,13 +19,13 @@ down:
 # Requires CF_TUNNEL_TOKEN and a proper DATABASE_URL in .env
 
 prod:
-	docker compose -f docker compose.yml -f docker compose.prod.yml up -d
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 
 prod-build:
-	docker compose -f docker compose.yml -f docker compose.prod.yml up -d --build
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
 
 prod-down:
-	docker compose -f docker compose.yml -f docker compose.prod.yml down
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml down
 
 # ─── Database Migrations ──────────────────────────────────────────────────────
 
