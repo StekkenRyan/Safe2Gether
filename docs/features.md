@@ -112,6 +112,20 @@ Jeder Nutzer stellt seine eigene Reihenfolge ein. Mögliche Ketten:
 
 ---
 
+## Geplant für v2.x — Safe Ride Home (Volunteer Drivers)
+
+Freiwillige Fahrer bringen Nutzer nachts sicher nach Hause. Beide Rollen (Hilfesuchend /
+Hilfsbereit) in einer Tab, **weicher Radius** (Anfragen außerhalb werden mit Hinweis
+zugestellt — Fahrer entscheidet), **Trinkgeld freiwillig** (bar oder optional in-app).
+
+Vorbild: ehrenamtlicher Bremer Mitnahme-Dienst, eingestellt Januar 2026 — rechtliche
+und versicherungstechnische Klippen müssen vor Implementierung adressiert werden.
+
+Vollständige Skizze inkl. Rechtsfragen, Vetting, Trinkgeld-Modell, Tech-Architektur:
+[docs/safe-ride-home.md](safe-ride-home.md)
+
+---
+
 ## Offene Entscheidungen (nächste Planungsebene)
 
 - Genaue Preispunkte für Premium (Monat / Jahr)

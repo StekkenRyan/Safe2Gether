@@ -10,3 +10,4 @@
 | [roadmap.md](roadmap.md) | v1.0–v3.0 Scope, Build-Order, Beta-Strategie, Launch-Kriterien (Stand: 2026-05-31) |
 | [api/openapi.yaml](api/openapi.yaml) | OpenAPI 3.1.0 Contract — alle v1.0 Endpunkte, Schemas, Auth, Fehlerformat (Stand: 2026-05-31) |
 | [dsgvo.md](dsgvo.md) | DSGVO-Entwurf — Datenarten, Zwecke, Fristen, TOMs, offene Punkte vor Launch (Stand: 2026-05-31) |
+| [safe-ride-home.md](safe-ride-home.md) | Safe Ride Home (v2.x) — Volunteer Drivers, Soft-Radius, Trinkgeld, offene Rechtsfragen (Stand: 2026-06-01) |

@@ -99,6 +99,26 @@
 
 ---
 
+## v2.x — Safe Ride Home (Volunteer Drivers)
+
+*Eigenständiger Block — nicht Teil von v2.0, vermutlich v2.5*
+
+- [ ] **Volunteer-Driver-Modell** — eine Tab, beide Rollen (Hilfesuchend / Hilfsbereit)
+- [ ] **Soft-Radius-Matching** — Anfragen außerhalb des Fahrer-Radius mit Warnhinweis zustellbar
+- [ ] **Live-Tracking & Panic Button während aktiver Fahrt** — Dead Man's Switch greift bei verpasster Ankunfts-Bestätigung
+- [ ] **Optionales In-App-Trinkgeld** (Apple Pay / SEPA) — niemals Bedingung
+- [ ] **Erhöhtes Fahrer-Vetting** — Telefon-OTP verpflichtend, Mindest-Reputation, ggf. Führerschein-Verifikation
+
+**Vor Implementierung zu klären** (anwaltlich):
+- Personenbeförderungsgesetz und Trinkgeld-Grenze
+- Versicherungsmodell (Gruppen-Police vs. Einzelversicherung)
+- Haftung bei Unfall + Disclaimer-Wortlaut
+- Gründe für Einstellung des Bremer Vorbild-Dienstes
+
+Details: [docs/safe-ride-home.md](safe-ride-home.md)
+
+---
+
 ## v3.0 — Android & Wachstum
 
 - [ ] Android-App — nach v2.0 etabliert
