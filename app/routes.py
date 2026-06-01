@@ -1,7 +1,8 @@
 import os
-from flask import Blueprint, jsonify, current_app
-from sqlalchemy import text
+
 import redis as redis_lib
+from flask import Blueprint, current_app, jsonify
+from sqlalchemy import text
 
 bp = Blueprint('api', __name__, url_prefix='/api/v1')
 
