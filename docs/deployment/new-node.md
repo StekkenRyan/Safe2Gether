@@ -108,13 +108,13 @@ DATABASE_URL=postgresql://safe2gether:<PW>@<PI_TAILSCALE_IP>:5432/safe2gether
    ```
 6. Public Hostname konfigurieren:
    - Subdomain: `api` (oder leer lassen für Apex)
-   - Domain: `safe2gether.app` (deine Domain)
+   - Domain: `safe2gether.de` (deine Domain)
    - Service: `http://api:5000`
 
 ### Load Balancer für Failover (wenn mehrere Nodes aktiv):
 
 1. `Traffic` → `Load Balancing` → `Create Load Balancer`
-2. Hostname: `api.safe2gether.app`
+2. Hostname: `api.safe2gether.de`
 3. Origin Pool A: Tunnel zum Pi
 4. Origin Pool B: Tunnel zum Office Server
 5. Health Check: `GET /api/v1/health`, Match: `"status":"ok"`

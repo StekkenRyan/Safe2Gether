@@ -28,8 +28,8 @@ docker compose version   # muss ≥ 2.x ausgeben
 ## Schritt 2 — Repo clonen
 
 ```bash
-git clone https://github.com/StekkenRyan/Safe2Gether-ServerCode.git
-cd Safe2Gether-ServerCode
+git clone https://github.com/StekkenRyan/Safe2Gether.git
+cd Safe2Gether
 ```
 
 ---
@@ -89,7 +89,7 @@ APNS_SANDBOX=true
 4. **Token kopieren** → in `.env` eintragen: `CF_TUNNEL_TOKEN=eyJ...`
 5. Public Hostname:
    - Subdomain: `api`
-   - Domain: `safe2gether.app` (deine Domain)
+   - Domain: `safe2gether.de` (deine Domain)
    - Service: `http://api:5000`
 6. Speichern
 
@@ -141,7 +141,7 @@ Erwartete Antwort:
 }
 ```
 
-Wenn `status: "ok"` → der Pi ist live und über `https://api.safe2gether.app` erreichbar.
+Wenn `status: "ok"` → der Pi ist live und über `https://api.safe2gether.de` erreichbar.
 
 ---
 

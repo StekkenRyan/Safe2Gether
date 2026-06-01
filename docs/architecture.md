@@ -17,7 +17,7 @@
                        ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    Cloudflare Tunnel                                 │
-│  Öffentlicher Hostname: api.safe2gether.app                         │
+│  Öffentlicher Hostname: api.safe2gether.de                          │
 │  Health-Check Failover: wechselt auf nächsten Node wenn Primary     │
 │  degraded (db_status oder redis_status = "error")                   │
 └────────┬────────────────────────────────┬────────────────────────────┘
@@ -210,7 +210,7 @@ FROM pg_stat_replication;
 
 ```
 Cloudflare Zero Trust Dashboard
-  └── Load Balancer: api.safe2gether.app
+  └── Load Balancer: api.safe2gether.de
         ├── Origin Pool A: Tunnel zu Pi (Node A)
         │     Health Check: GET /api/v1/health → { "status": "ok" }
         └── Origin Pool B: Tunnel zu Office Server (Node B)
