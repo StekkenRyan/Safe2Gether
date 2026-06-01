@@ -8,6 +8,7 @@
 | [features.md](features.md) | Free vs. Premium, Panic Button, Dead Man's Switch, Nearby Alerting, Reputation-System (Stand: 2026-05-31) |
 | [architecture.md](architecture.md) | Stack, Datenflüsse, Multi-Node, Redis-Rolle, Cloudflare-Failover, DSGVO, Monitoring (Stand: 2026-06-01) |
 | [roadmap.md](roadmap.md) | v1.0–v3.0 Scope, Build-Order, Beta-Strategie, Launch-Kriterien (Stand: 2026-05-31) |
+| [deployment/quickstart-pi.md](deployment/quickstart-pi.md) | **Erster Deploy auf dem Pi** — 9 Schritte, nur Kommandos, kein Overhead |
 | [deployment/overview.md](deployment/overview.md) | Deployment-Übersicht: welches Dokument wann, Hardware-Rollen, Konzepte |
 | [deployment/new-node.md](deployment/new-node.md) | Neuen Node aufsetzen (Pi, VPS, NAS) — vollständige Schritt-für-Schritt-Anleitung |
 | [deployment/tailscale.md](deployment/tailscale.md) | Tailscale VPN: Installation auf allen Plattformen, Headscale-Option |
