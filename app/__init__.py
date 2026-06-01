@@ -38,4 +38,10 @@ def create_app(test_config=None):
     from .heartbeat import bp as heartbeat_bp
     app.register_blueprint(heartbeat_bp)
 
+    from .contacts import bp as contacts_bp
+    app.register_blueprint(contacts_bp)
+
+    from .alarm import bp as alarms_bp
+    app.register_blueprint(alarms_bp)
+
     return app
