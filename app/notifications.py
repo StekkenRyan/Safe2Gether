@@ -2,6 +2,12 @@
 
 Sending is fire-and-forget via a background thread so the alarm endpoint
 returns immediately. Failures are logged but never bubble up to the caller.
+
+Payload contract (consumed by iOS `Core/Notifications/PushPayload.swift`):
+  Common:    type, alarm_id, aps.category (for action-button display)
+  nearby_alert: triggered_at (ISO 8601), bearing_degrees, distance_meters,
+                responder_count
+  alarm_update: event (discriminator), body text in aps.alert.body
 """
 import logging
 import os
@@ -15,6 +21,18 @@ logger = logging.getLogger(__name__)
 _APNS_SANDBOX_HOST = 'https://api.sandbox.push.apple.com'
 _APNS_PROD_HOST = 'https://api.push.apple.com'
 _APNS_PORT = 443
+
+# iOS-side categories (see Safe2Gether/Core/Notifications/NotificationCategory.swift).
+# Setting these is what makes the "Ich helfe" / "Ablehnen" action buttons
+# show up on the lock-screen banner.
+_CATEGORY_NEARBY = 'NEARBY_ALERT'
+_CATEGORY_CONTACT = 'CONTACT_ALERT'
+
+# Structured event discriminators in alarm_update payloads.
+EVENT_CONTACT_ALARM_TRIGGERED = 'contact_alarm_triggered'
+EVENT_RESPONDER_ADDED = 'responder_added'
+EVENT_ALARM_RESOLVED = 'alarm_resolved'
+EVENT_ALARM_FALSE_ALARM = 'alarm_false_alarm'
 
 
 def _apns_host() -> str:
@@ -69,37 +87,81 @@ def _send_apns(device_token: str, payload: dict, environment: str = 'sandbox') -
         logger.exception('APNs send failed for token %s', device_token[:8] + '...')
 
 
-def send_nearby_alert(device_token: str, environment: str,
-                      alarm_id: str, direction: str, distance_m: int) -> None:
-    """Non-blocking: notify a nearby user that an alarm was triggered."""
+def send_nearby_alert(
+    device_token: str,
+    environment: str,
+    alarm_id: str,
+    triggered_at_iso: str,
+    bearing_degrees: float,
+    distance_meters: int,
+    responder_count: int = 0,
+) -> None:
+    """Non-blocking: notify a nearby user that an alarm was triggered.
+
+    Sets `aps.category = NEARBY_ALERT` so iOS attaches the registered
+    "Ich helfe" / "Ablehnen" action buttons to the banner.
+    """
+    body = f'{_distance_label(distance_meters)} · {_compass_label(bearing_degrees)}'
     payload = {
         'aps': {
             'alert': {
                 'title': 'Hilferuf in deiner Nähe',
-                'body': f'{direction}, ca. {distance_m} m entfernt',
+                'body': body,
             },
             'sound': 'default',
             'badge': 1,
+            'category': _CATEGORY_NEARBY,
         },
-        'alarm_id': alarm_id,
         'type': 'nearby_alert',
+        'alarm_id': alarm_id,
+        'triggered_at': triggered_at_iso,
+        'bearing_degrees': bearing_degrees,
+        'distance_meters': distance_meters,
+        'responder_count': responder_count,
     }
     threading.Thread(
         target=_send_apns, args=(device_token, payload, environment), daemon=True
     ).start()
 
 
-def send_alarm_update(device_token: str, environment: str,
-                      alarm_id: str, event: str) -> None:
-    """Non-blocking: notify alarm owner or responder of a status change."""
+def send_alarm_update(
+    device_token: str,
+    environment: str,
+    alarm_id: str,
+    event: str,
+    body: str,
+) -> None:
+    """Non-blocking: notify alarm owner or responder of a status change.
+
+    `event` is a stable discriminator the iOS client can switch on without
+    parsing the localized banner body. Use the EVENT_* constants in this
+    module.
+    """
     payload = {
         'aps': {
-            'alert': {'title': 'Alarm-Update', 'body': event},
+            'alert': {'title': 'Alarm-Update', 'body': body},
             'sound': 'default',
+            'category': _CATEGORY_CONTACT,
         },
-        'alarm_id': alarm_id,
         'type': 'alarm_update',
+        'alarm_id': alarm_id,
+        'event': event,
     }
     threading.Thread(
         target=_send_apns, args=(device_token, payload, environment), daemon=True
     ).start()
+
+
+# ─── Banner formatting helpers ───────────────────────────────────────────────
+
+def _compass_label(bearing_degrees: float) -> str:
+    """8-point compass label for an absolute bearing (0=N, clockwise)."""
+    d = bearing_degrees % 360
+    labels = ('N', 'NO', 'O', 'SO', 'S', 'SW', 'W', 'NW')
+    return labels[int((d + 22.5) // 45) % 8]
+
+
+def _distance_label(meters: int) -> str:
+    if meters < 1000:
+        return f'ca. {meters} m'
+    return f'ca. {meters / 1000:.1f} km'

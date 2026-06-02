@@ -4,6 +4,7 @@ Redis data model (cell-based sets — avoids full SCAN):
   user_geo:<user_id>   → current H3 cell string      (SETEX, per-user TTL)
   geo_cell:<geohash>   → SET of user_ids in that cell (no TTL; lazy cleanup on read)
 """
+import math
 import os
 
 import h3
@@ -12,6 +13,8 @@ from flask import Blueprint, g, jsonify, request
 
 from .redis_keys import GEO_CELL, GEO_USER
 from .token import require_auth
+
+_EARTH_RADIUS_M = 6_371_000
 
 bp = Blueprint('geo', __name__, url_prefix='/api/v1')
 
@@ -36,6 +39,26 @@ def _update_user_geo(r: redis_lib.Redis, user_id: str, geohash: str, ttl: int) -
     pipe.setex(f'{GEO_USER}{user_id}', ttl, geohash)
     pipe.sadd(f'{GEO_CELL}{geohash}', user_id)
     pipe.execute()
+
+
+def haversine_meters(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Great-circle distance between two lat/lng pairs in meters."""
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dp = math.radians(lat2 - lat1)
+    dl = math.radians(lng2 - lng1)
+    a = math.sin(dp / 2) ** 2 + math.cos(p1) * math.cos(p2) * math.sin(dl / 2) ** 2
+    return 2 * _EARTH_RADIUS_M * math.asin(math.sqrt(a))
+
+
+def bearing_between(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
+    """Initial great-circle bearing from p1 to p2 in degrees (0=N, clockwise)."""
+    p1 = math.radians(lat1)
+    p2 = math.radians(lat2)
+    dl = math.radians(lng2 - lng1)
+    x = math.sin(dl) * math.cos(p2)
+    y = math.cos(p1) * math.sin(p2) - math.sin(p1) * math.cos(p2) * math.cos(dl)
+    return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 
 def nearby_user_ids(geohash: str, ring_size: int = 1) -> list[str]:

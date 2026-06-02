@@ -9,9 +9,16 @@ from flask import Blueprint, g, jsonify, request
 from sqlalchemy.exc import IntegrityError
 
 from .db import db
-from .geo import nearby_user_ids
+from .geo import bearing_between, haversine_meters, nearby_user_ids
 from .models import Alarm, AlarmResponder, User
-from .notifications import send_alarm_update, send_nearby_alert
+from .notifications import (
+    EVENT_ALARM_FALSE_ALARM,
+    EVENT_ALARM_RESOLVED,
+    EVENT_CONTACT_ALARM_TRIGGERED,
+    EVENT_RESPONDER_ADDED,
+    send_alarm_update,
+    send_nearby_alert,
+)
 from .redis_keys import ALARM_RATE, GEO_USER
 from .token import require_auth
 
@@ -44,6 +51,25 @@ def _check_rate_limit(user_id: str) -> bool:
         return result is not None
     except redis_lib.RedisError:
         return True  # Fail open: never block a real emergency due to Redis outage
+
+
+def _route_from_receiver(receiver_cell: str | None,
+                         sender_lat: float, sender_lng: float) -> tuple[int, float]:
+    """Distance (m) and bearing (deg) from the receiver to the alarm sender.
+
+    Falls back to (500 m, 0°) if the receiver has no recorded geohash or H3
+    rejects the cell. The fallback values are deliberately conservative —
+    enough to render a usable banner without misleading precision.
+    """
+    if not receiver_cell:
+        return 500, 0.0
+    try:
+        r_lat, r_lng = h3.cell_to_latlng(receiver_cell)
+        distance_m = int(haversine_meters(r_lat, r_lng, sender_lat, sender_lng))
+        bearing = bearing_between(r_lat, r_lng, sender_lat, sender_lng)
+        return distance_m, bearing
+    except Exception:
+        return 500, 0.0
 
 
 # ─── Create alarm ─────────────────────────────────────────────────────────────
@@ -100,11 +126,15 @@ def trigger_alarm():
                     contact_user.apns_device_token,
                     contact_user.apns_environment or 'sandbox',
                     alarm_id,
-                    f'{user.email or "Dein Kontakt"} hat einen Notruf ausgelöst!',
+                    event=EVENT_CONTACT_ALARM_TRIGGERED,
+                    body=f'{user.email or "Dein Kontakt"} hat einen Notruf ausgelöst!',
                 )
 
     # Notify nearby community users (non-blocking)
     if geohash:
+        sender_lat, sender_lng = h3.cell_to_latlng(geohash)
+        triggered_at_iso = alarm.triggered_at.isoformat() if alarm.triggered_at else ''
+
         nearby_ids = [uid for uid in nearby_user_ids(geohash) if uid != g.user_id]
         # Batch-load nearby users to avoid N+1
         nearby_users = {u.id: u for u in User.query.filter(User.id.in_(nearby_ids)).all()}
@@ -116,12 +146,17 @@ def trigger_alarm():
                 continue
             if nu.reputation_level == 'very_low':
                 continue
+
+            distance_m, bearing = _route_from_receiver(_user_geohash(uid),
+                                                      sender_lat, sender_lng)
             send_nearby_alert(
                 nu.apns_device_token,
                 nu.apns_environment or 'sandbox',
                 alarm_id,
-                direction='In deiner Nähe',
-                distance_m=500,
+                triggered_at_iso=triggered_at_iso,
+                bearing_degrees=bearing,
+                distance_meters=distance_m,
+                responder_count=0,
             )
 
     db.session.refresh(alarm)
@@ -174,11 +209,21 @@ def update_alarm(alarm_id: str):
     # Notify all responders (batch-load to avoid N+1)
     responder_ids = [r.user_id for r in alarm.responders.all()]
     responder_users = User.query.filter(User.id.in_(responder_ids)).all()
-    msg = 'Alarm aufgehoben' if new_status == 'resolved' else 'Fehlalarm gemeldet'
+    if new_status == 'resolved':
+        event = EVENT_ALARM_RESOLVED
+        msg = 'Alarm aufgehoben'
+    else:
+        event = EVENT_ALARM_FALSE_ALARM
+        msg = 'Fehlalarm gemeldet'
     for ruser in responder_users:
         if ruser.apns_device_token:
-            send_alarm_update(ruser.apns_device_token,
-                              ruser.apns_environment or 'sandbox', alarm_id, msg)
+            send_alarm_update(
+                ruser.apns_device_token,
+                ruser.apns_environment or 'sandbox',
+                alarm_id,
+                event=event,
+                body=msg,
+            )
 
     return jsonify(alarm.to_dict())
 
@@ -207,9 +252,13 @@ def respond_to_alarm(alarm_id: str):
     # Notify alarm owner
     owner = db.session.get(User, alarm.user_id)
     if owner and owner.apns_device_token:
-        send_alarm_update(owner.apns_device_token,
-                          owner.apns_environment or 'sandbox',
-                          alarm_id, 'Jemand kommt zu dir!')
+        send_alarm_update(
+            owner.apns_device_token,
+            owner.apns_environment or 'sandbox',
+            alarm_id,
+            event=EVENT_RESPONDER_ADDED,
+            body='Jemand kommt zu dir!',
+        )
 
     location_data = None
     if alarm.exact_latitude is not None:
