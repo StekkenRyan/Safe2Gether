@@ -1,0 +1,19 @@
+# Landing-page overlay — used ON TOP of prod (+ optionally dev-server):
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#                  [-f docker-compose.dev-server.yml] \
+#                  -f docker-compose.nginx.yml up -d
+#
+# Serves landing/ as static site.
+# Cloudflare dashboard → Tunnel → Public Hostnames → add:
+#   safe2gether.de      →  http://nginx:80
+#   www.safe2gether.de  →  http://nginx:80
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./landing:/usr/share/nginx/html:ro
+    # no ports — cloudflared handles all ingress
+    restart: always
+    depends_on:
+      - api

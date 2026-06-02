@@ -2,7 +2,9 @@ PYTHON := $(shell command -v python3.12 2>/dev/null || command -v python3 2>/dev
 VENV   := .venv
 
 .PHONY: dev prod down migrate migrate-create shell psql logs backup build \
-        lint lint-fix lint-openapi test check install-dev install-hooks
+        lint lint-fix lint-openapi test check install-dev install-hooks \
+        prod-with-dev prod-with-dev-build dev-rebuild \
+        prod-with-landing prod-full
 
 # ─── Development ──────────────────────────────────────────────────────────────
 
@@ -26,6 +28,25 @@ prod-build:
 
 prod-down:
 	docker compose -f docker-compose.yml -f docker-compose.prod.yml down
+
+# ─── Prod + Dev endpoint (api.safe2gether.de + dev.safe2gether.de) ────────────
+
+prod-with-dev:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dev-server.yml up -d
+
+prod-with-dev-build:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dev-server.yml up -d --build
+
+dev-rebuild:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dev-server.yml up -d --build api-dev
+
+# ─── Full stack (prod + dev endpoint + landing page nginx) ────────────────────
+
+prod-with-landing:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.nginx.yml up -d
+
+prod-full:
+	docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dev-server.yml -f docker-compose.nginx.yml up -d
 
 # ─── Database Migrations ──────────────────────────────────────────────────────
 

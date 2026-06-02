@@ -1,0 +1,63 @@
+# Dev-endpoint overlay — used ON TOP of prod stack:
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.dev-server.yml up -d
+#
+# Adds dev.safe2gether.de via the SAME Cloudflare Tunnel already running in prod.
+# Cloudflare dashboard → Tunnel → Public Hostnames → add:
+#   dev.safe2gether.de  →  http://api-dev:5000
+#
+# api-dev, redis-dev, postgres-dev share the compose project network with cloudflared,
+# so no second tunnel token is needed.
+
+services:
+  api-dev:
+    build: .
+    volumes: []  # no bind-mount — code baked into image (git pull + rebuild to deploy)
+    environment:
+      FLASK_APP: app
+      FLASK_DEBUG: "1"
+      REDIS_URL: redis://redis-dev:6379/0
+      DATABASE_URL: postgresql://safe2gether:${DEV_POSTGRES_PASSWORD:-devpassword}@postgres-dev:5432/safe2gether_dev
+      NODE_ID: dev-node
+      SECRET_KEY: ${DEV_SECRET_KEY:-change-me-dev}
+      JWT_SECRET_KEY: ${DEV_JWT_SECRET_KEY:-change-me-dev}
+      JWT_ACCESS_TOKEN_EXPIRES: "3600"
+      JWT_REFRESH_TOKEN_EXPIRES: "2592000"
+      APNS_SANDBOX: "true"
+      CORS_ORIGINS: ${DEV_CORS_ORIGINS:-http://localhost:3000}
+    command: gunicorn -w 1 -b 0.0.0.0:5000 --worker-class eventlet --timeout 60 wsgi:app
+    depends_on:
+      redis-dev:
+        condition: service_healthy
+      postgres-dev:
+        condition: service_healthy
+    restart: unless-stopped
+
+  redis-dev:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    volumes:
+      - redis_dev_data:/data
+    restart: unless-stopped
+
+  postgres-dev:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: safe2gether_dev
+      POSTGRES_USER: safe2gether
+      POSTGRES_PASSWORD: ${DEV_POSTGRES_PASSWORD:-devpassword}
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U safe2gether"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  redis_dev_data:
+  postgres_dev_data:
