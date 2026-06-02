@@ -74,4 +74,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .alarm import bp as alarms_bp
     app.register_blueprint(alarms_bp)
 
+    from .escalation import bp as escalation_bp
+    app.register_blueprint(escalation_bp)
+
     return app

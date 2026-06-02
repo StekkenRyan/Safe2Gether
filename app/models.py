@@ -38,6 +38,17 @@ class User(db.Model):
         db.Boolean, nullable=False, default=True, server_default='true'
     )
 
+    # User-configurable escalation chain. Stored as comma-separated stage names
+    # (small ordered list; trade-off vs. JSON column is negligible for v1.0).
+    escalation_order = db.Column(
+        db.Text, nullable=False,
+        default='device_local,contacts,community',
+        server_default='device_local,contacts,community',
+    )
+    escalation_delay_seconds = db.Column(
+        db.Integer, nullable=False, default=30, server_default='30',
+    )
+
     # Account state
     is_active = db.Column(db.Boolean, nullable=False, default=True, server_default='true')
     scheduled_deletion_at = db.Column(db.DateTime, nullable=True)  # GDPR Art. 17
@@ -74,6 +85,14 @@ class User(db.Model):
             'nearby_alerting_enabled': self.nearby_alerting_enabled,
             'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
             'updated_at': self.updated_at.isoformat() + 'Z' if self.updated_at else None,
+        }
+
+    def escalation_to_dict(self) -> dict:
+        return {
+            'escalation_order': [
+                s for s in (self.escalation_order or '').split(',') if s
+            ],
+            'delay_seconds_between_stages': self.escalation_delay_seconds,
         }
 
 
