@@ -77,4 +77,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .escalation import bp as escalation_bp
     app.register_blueprint(escalation_bp)
 
+    from .escalation_worker import start_worker
+    start_worker(app)
+
     return app

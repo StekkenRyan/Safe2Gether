@@ -26,3 +26,8 @@ JWKS_GOOGLE = f'{_P}jwks:google'
 
 # Alarm rate-limiting (one per user per window)
 ALARM_RATE = f'{_P}alarm_rate:'    # + user_id  →  '1' (with TTL)
+
+# Escalation chain scheduler — sorted set, score = unix timestamp when the
+# stage should execute, member = "<alarm_id>:<stage_index>". Worker thread
+# atomically pops due items via a Lua script. Survives api restarts.
+ESCALATION_QUEUE = f'{_P}escalation:queue'

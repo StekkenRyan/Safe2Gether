@@ -185,7 +185,7 @@ components:
           enum: [active, resolved, false_alarm]
         escalation_stage:
           type: string
-          enum: [device_local, contacts, community]
+          enum: [device_local, contacts, community, contacts+community]
           description: Current stage of the escalation chain
         geohash_snapshot:
           type: string

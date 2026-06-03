@@ -1,6 +1,13 @@
-"""Alarm (Panic Button) blueprint — /api/v1/alarms"""
+"""Alarm (Panic Button) blueprint — /api/v1/alarms
+
+Escalation chain runs through a Redis-backed scheduler (see
+`escalation_worker.py`). The first stage executes inline on the trigger
+request so the responsive APNs fanout still happens in the same request
+window; subsequent stages are enqueued and picked up by the worker.
+"""
 import logging
 import os
+import time
 import uuid
 
 import h3
@@ -19,7 +26,7 @@ from .notifications import (
     send_alarm_update,
     send_nearby_alert,
 )
-from .redis_keys import ALARM_RATE, GEO_USER
+from .redis_keys import ALARM_RATE, ESCALATION_QUEUE, GEO_USER
 from .token import require_auth
 
 logger = logging.getLogger(__name__)
@@ -27,6 +34,10 @@ bp = Blueprint('alarms', __name__, url_prefix='/api/v1/alarms')
 
 _ALARM_RATE_LIMIT_SECS = 60   # max 1 alarm per user per minute
 
+_VALID_STAGES = ('device_local', 'contacts', 'community', 'contacts+community')
+
+
+# ─── Redis helpers ───────────────────────────────────────────────────────────
 
 def _redis() -> redis_lib.Redis:
     return redis_lib.from_url(
@@ -53,14 +64,21 @@ def _check_rate_limit(user_id: str) -> bool:
         return True  # Fail open: never block a real emergency due to Redis outage
 
 
+def schedule_stage(alarm_id: str, stage_index: int, run_at_ts: float) -> None:
+    """Push a stage onto the escalation queue. Idempotent."""
+    member = f'{alarm_id}:{stage_index}'
+    try:
+        _redis().zadd(ESCALATION_QUEUE, {member: run_at_ts})
+    except redis_lib.RedisError:
+        # Best-effort: a Redis outage here means the later stages won't fire,
+        # but stage 0 already ran inline so the user still gets fanout. Log
+        # and continue.
+        logger.exception('escalation enqueue failed for %s stage=%s', alarm_id, stage_index)
+
+
 def _route_from_receiver(receiver_cell: str | None,
                          sender_lat: float, sender_lng: float) -> tuple[int, float]:
-    """Distance (m) and bearing (deg) from the receiver to the alarm sender.
-
-    Falls back to (500 m, 0°) if the receiver has no recorded geohash or H3
-    rejects the cell. The fallback values are deliberately conservative —
-    enough to render a usable banner without misleading precision.
-    """
+    """Distance (m) and bearing (deg) from the receiver to the alarm sender."""
     if not receiver_cell:
         return 500, 0.0
     try:
@@ -70,6 +88,90 @@ def _route_from_receiver(receiver_cell: str | None,
         return distance_m, bearing
     except Exception:
         return 500, 0.0
+
+
+# ─── Stage fan-out helpers (used inline + by the escalation worker) ──────────
+
+def _notify_contacts(alarm: Alarm, user: User) -> None:
+    """Push notification to every `in_app` emergency contact of the alarmee.
+
+    `phone` / `email` contact types are stored on the user but not delivered
+    by the v1.0 server — they're a v2.x SMS/Email provider concern.
+    """
+    contacts = user.emergency_contacts.all()
+    for contact in contacts:
+        if contact.contact_type != 'in_app':
+            continue
+        contact_user = db.session.get(User, contact.contact_value)
+        if not contact_user or not contact_user.apns_device_token:
+            continue
+        send_alarm_update(
+            contact_user.apns_device_token,
+            contact_user.apns_environment or 'sandbox',
+            alarm.id,
+            event=EVENT_CONTACT_ALARM_TRIGGERED,
+            body=f'{user.email or "Dein Kontakt"} hat einen Notruf ausgelöst!',
+        )
+
+
+def _notify_community(alarm: Alarm, user: User) -> None:
+    """Push notification to every Nearby-Alerting-enabled user in the H3 k-ring
+    around the alarm's geohash_snapshot. Uses the snapshot deliberately —
+    nearby users near the *original* panic site should be alerted even if the
+    alarmee has been moving for some minutes.
+    """
+    geohash = alarm.geohash_snapshot
+    if not geohash:
+        return
+
+    sender_lat, sender_lng = h3.cell_to_latlng(geohash)
+    triggered_at_iso = alarm.triggered_at.isoformat() if alarm.triggered_at else ''
+
+    nearby_ids = [uid for uid in nearby_user_ids(geohash) if uid != alarm.user_id]
+    nearby_users = {u.id: u for u in User.query.filter(User.id.in_(nearby_ids)).all()}
+    for uid in nearby_ids:
+        nu = nearby_users.get(uid)
+        if not nu or not nu.apns_device_token:
+            continue
+        if not nu.nearby_alerting_enabled:
+            continue
+        if nu.reputation_level == 'very_low':
+            continue
+
+        distance_m, bearing = _route_from_receiver(_user_geohash(uid),
+                                                   sender_lat, sender_lng)
+        send_nearby_alert(
+            nu.apns_device_token,
+            nu.apns_environment or 'sandbox',
+            alarm.id,
+            triggered_at_iso=triggered_at_iso,
+            bearing_degrees=bearing,
+            distance_meters=distance_m,
+            responder_count=0,
+        )
+
+
+def run_stage(alarm: Alarm, user: User, stage: str) -> None:
+    """Dispatch a single escalation stage. `device_local` is a no-op on the
+    server side (the iOS local timer is the source of truth for that stage).
+    """
+    if stage == 'device_local':
+        return
+    if stage == 'contacts':
+        _notify_contacts(alarm, user)
+    elif stage == 'community':
+        _notify_community(alarm, user)
+    elif stage == 'contacts+community':
+        _notify_contacts(alarm, user)
+        _notify_community(alarm, user)
+    else:
+        logger.warning('unknown escalation stage %r on alarm %s', stage, alarm.id)
+
+
+def _user_stages(user: User) -> list[str]:
+    """Sanitised escalation chain for a user — drops empty / unknown values."""
+    raw = (user.escalation_order or '').split(',')
+    return [s for s in raw if s in _VALID_STAGES]
 
 
 # ─── Create alarm ─────────────────────────────────────────────────────────────
@@ -103,61 +205,30 @@ def trigger_alarm():
 
     alarm_id = str(uuid.uuid4())  # Always server-generated — no client-provided IDs
 
+    stages = _user_stages(user) or ['device_local', 'contacts', 'community']
+    delay = user.escalation_delay_seconds
+
     alarm = Alarm(
         id=alarm_id,
         user_id=g.user_id,
         trigger_source=trigger_source,
         status='active',
-        escalation_stage='device_local',
+        escalation_stage=stages[0],
         geohash_snapshot=geohash,
     )
     db.session.add(alarm)
     db.session.commit()
-    logger.info('alarm_triggered user=%s alarm=%s source=%s geohash=%s',
-                g.user_id, alarm_id, trigger_source, geohash)
+    logger.info('alarm_triggered user=%s alarm=%s source=%s stages=%s delay=%ss',
+                g.user_id, alarm_id, trigger_source, stages, delay)
 
-    # Notify emergency contacts (non-blocking, fire-and-forget)
-    contacts = user.emergency_contacts.all()
-    for contact in contacts:
-        if contact.contact_type == 'in_app':
-            contact_user = db.session.get(User, contact.contact_value)
-            if contact_user and contact_user.apns_device_token:
-                send_alarm_update(
-                    contact_user.apns_device_token,
-                    contact_user.apns_environment or 'sandbox',
-                    alarm_id,
-                    event=EVENT_CONTACT_ALARM_TRIGGERED,
-                    body=f'{user.email or "Dein Kontakt"} hat einen Notruf ausgelöst!',
-                )
+    # Stage 0 inline: keeps the panic-button → first-fanout round-trip tight.
+    run_stage(alarm, user, stages[0])
 
-    # Notify nearby community users (non-blocking)
-    if geohash:
-        sender_lat, sender_lng = h3.cell_to_latlng(geohash)
-        triggered_at_iso = alarm.triggered_at.isoformat() if alarm.triggered_at else ''
-
-        nearby_ids = [uid for uid in nearby_user_ids(geohash) if uid != g.user_id]
-        # Batch-load nearby users to avoid N+1
-        nearby_users = {u.id: u for u in User.query.filter(User.id.in_(nearby_ids)).all()}
-        for uid in nearby_ids:
-            nu = nearby_users.get(uid)
-            if not nu or not nu.apns_device_token:
-                continue
-            if not nu.nearby_alerting_enabled:
-                continue
-            if nu.reputation_level == 'very_low':
-                continue
-
-            distance_m, bearing = _route_from_receiver(_user_geohash(uid),
-                                                      sender_lat, sender_lng)
-            send_nearby_alert(
-                nu.apns_device_token,
-                nu.apns_environment or 'sandbox',
-                alarm_id,
-                triggered_at_iso=triggered_at_iso,
-                bearing_degrees=bearing,
-                distance_meters=distance_m,
-                responder_count=0,
-            )
+    # Stage 1+ go through the persistent scheduler so an api restart doesn't
+    # lose them. Worker re-checks alarm.status before each execution.
+    now = time.time()
+    for index, _stage in enumerate(stages[1:], start=1):
+        schedule_stage(alarm_id, index, now + index * delay)
 
     db.session.refresh(alarm)
     return jsonify(alarm.to_dict()), 201
@@ -205,6 +276,9 @@ def update_alarm(alarm_id: str):
     alarm.status = new_status
     db.session.commit()
     logger.info('alarm_updated alarm=%s status=%s by user=%s', alarm_id, new_status, g.user_id)
+
+    # Pending escalation stages in the queue self-skip on next poll because
+    # the worker checks status before executing — no active cleanup needed.
 
     # Notify all responders (batch-load to avoid N+1)
     responder_ids = [r.user_id for r in alarm.responders.all()]
