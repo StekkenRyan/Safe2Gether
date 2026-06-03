@@ -58,6 +58,52 @@ def test_alarm_id_is_always_server_generated(client, auth_headers):
     uuid.UUID(data['id'])
 
 
+# ─── List alarms (history) ───────────────────────────────────────────────────
+
+def test_list_alarms_empty_for_fresh_user(client, auth_headers):
+    resp = client.get('/api/v1/alarms', headers=auth_headers)
+    assert resp.status_code == 200
+    assert resp.get_json() == {'alarms': []}
+
+
+def test_list_alarms_includes_own_with_role_sender(client, auth_headers):
+    triggered = _trigger(client, auth_headers).get_json()
+    resp = client.get('/api/v1/alarms', headers=auth_headers)
+    data = resp.get_json()
+    assert len(data['alarms']) == 1
+    assert data['alarms'][0]['id'] == triggered['id']
+    assert data['alarms'][0]['your_role'] == 'sender'
+
+
+def test_list_alarms_includes_responded_with_role_responder(client, make_user):
+    _, owner_token = make_user(email='owner-hist@example.com')
+    _, helper_token = make_user(email='helper-hist@example.com')
+
+    owner_headers = {'Authorization': f'Bearer {owner_token}'}
+    helper_headers = {'Authorization': f'Bearer {helper_token}'}
+
+    alarm_id = _trigger(client, owner_headers).get_json()['id']
+    client.post(f'/api/v1/alarms/{alarm_id}/respond', headers=helper_headers)
+
+    resp = client.get('/api/v1/alarms', headers=helper_headers)
+    data = resp.get_json()
+    assert len(data['alarms']) == 1
+    assert data['alarms'][0]['id'] == alarm_id
+    assert data['alarms'][0]['your_role'] == 'responder'
+
+
+def test_list_alarms_excludes_strangers(client, make_user, auth_headers):
+    _, stranger_token = make_user(email='stranger-hist@example.com')
+    _trigger(client, {'Authorization': f'Bearer {stranger_token}'})
+    resp = client.get('/api/v1/alarms', headers=auth_headers)
+    assert resp.get_json()['alarms'] == []
+
+
+def test_list_alarms_requires_auth(client):
+    resp = client.get('/api/v1/alarms')
+    assert resp.status_code == 401
+
+
 # ─── Rate limiting ────────────────────────────────────────────────────────────
 
 def test_alarm_rate_limit(client, auth_headers):

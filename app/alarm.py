@@ -234,6 +234,51 @@ def trigger_alarm():
     return jsonify(alarm.to_dict()), 201
 
 
+# ─── List alarms (user history) ───────────────────────────────────────────────
+
+_HISTORY_LIMIT = 50
+
+
+@bp.get('')
+@require_auth
+def list_alarms():
+    """User's alarm history — alarms they triggered + alarms they responded to,
+    merged by triggered_at desc and capped at the most recent 50.
+
+    Each entry carries `your_role: 'sender' | 'responder'` so the iOS history
+    list can render the badge without a second round-trip.
+    """
+    user_id = g.user_id
+
+    sent_alarms = Alarm.query.filter_by(user_id=user_id).all()
+
+    responded_ids = [
+        r.alarm_id for r in AlarmResponder.query.filter_by(user_id=user_id).all()
+    ]
+    responded_alarms = (
+        Alarm.query.filter(Alarm.id.in_(responded_ids)).all() if responded_ids else []
+    )
+
+    # Dedup (defensive: server prevents responding to own alarms but be safe)
+    # and sort newest-first, then cap.
+    seen: set[str] = set()
+    combined = []
+    for alarm in sent_alarms + responded_alarms:
+        if alarm.id in seen:
+            continue
+        seen.add(alarm.id)
+        combined.append(alarm)
+    combined.sort(key=lambda a: a.triggered_at, reverse=True)
+    combined = combined[:_HISTORY_LIMIT]
+
+    def serialize(a: Alarm) -> dict:
+        data = a.to_dict()
+        data['your_role'] = 'sender' if a.user_id == user_id else 'responder'
+        return data
+
+    return jsonify({'alarms': [serialize(a) for a in combined]})
+
+
 # ─── Get alarm ────────────────────────────────────────────────────────────────
 
 @bp.get('/<alarm_id>')

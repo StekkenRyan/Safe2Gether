@@ -805,6 +805,39 @@ paths:
   # ── Alarms (Panic Button) ─────────────────────────────────
 
   /api/v1/alarms:
+    get:
+      tags: [alarms]
+      operationId: listAlarms
+      summary: List user's alarm history
+      description: |
+        Returns the most recent alarms involving the authenticated user —
+        both alarms they triggered themselves and alarms where they pressed
+        "Ich helfe". Combined, deduplicated, sorted newest-first, capped at
+        50 entries.
+      responses:
+        '200':
+          description: Alarm history
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [alarms]
+                properties:
+                  alarms:
+                    type: array
+                    items:
+                      allOf:
+                        - $ref: '#/components/schemas/Alarm'
+                        - type: object
+                          required: [your_role]
+                          properties:
+                            your_role:
+                              type: string
+                              enum: [sender, responder]
+                              description: Relationship of the requesting user to this alarm
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
     post:
       tags: [alarms]
       operationId: triggerAlarm
