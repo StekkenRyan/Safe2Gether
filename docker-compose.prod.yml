@@ -6,7 +6,11 @@
 
 services:
   api:
-    volumes: !reset []  # no bind-mount in production; code is baked into the image
+    # Replace the dev source-bind-mount entirely; the only volume in prod is
+    # the read-only APNs auth key (placed on the host at
+    # /etc/safe2gether/apns_key.p8, perms 0600).
+    volumes: !override
+      - /etc/safe2gether/apns_key.p8:/run/secrets/apns_key.p8:ro
     environment:
       FLASK_DEBUG: "0"
     command: gunicorn -w 2 -b 0.0.0.0:5000 --worker-class eventlet wsgi:app
