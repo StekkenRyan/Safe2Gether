@@ -236,12 +236,33 @@ components:
 
     GeohashUpdate:
       type: object
-      required: [geohash, status]
+      required: [status]
+      description: |
+        The body must carry the user's location either as a pre-computed H3
+        cell (`geohash`) **or** as raw coordinates (`latitude` + `longitude`).
+        When both are present, the explicit `geohash` wins.
+
+        Raw coordinates are converted to H3 (level 7, ≈1.2 km²) in-memory and
+        immediately discarded — only the resulting cell is persisted. Clients
+        that already compute H3 locally should send `geohash` to skip the
+        server-side conversion.
       properties:
         geohash:
           type: string
           example: "871f1d48dffffff"
-          description: H3 index string (level 7, ≈1.2 km²)
+          description: Pre-computed H3 index string (level 7, ≈1.2 km²)
+        latitude:
+          type: number
+          format: double
+          minimum: -90
+          maximum: 90
+          description: WGS-84 latitude in degrees. Send together with `longitude` when the client cannot compute H3 itself.
+        longitude:
+          type: number
+          format: double
+          minimum: -180
+          maximum: 180
+          description: WGS-84 longitude in degrees.
         status:
           type: string
           enum: [online, expected_offline]

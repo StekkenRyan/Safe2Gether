@@ -20,6 +20,9 @@ bp = Blueprint('geo', __name__, url_prefix='/api/v1')
 
 _GEO_TTL = 600              # 10 min base TTL
 _MAX_OFFLINE_SECS = 604800  # 7 days absolute cap
+# H3 resolution for clients that send raw lat/lng. Level 7 ≈ 1.2 km² average
+# cell area — matches the privacy posture documented in the architecture docs.
+_H3_RESOLUTION = 7
 
 
 def _redis() -> redis_lib.Redis:
@@ -87,35 +90,81 @@ def nearby_user_ids(geohash: str, ring_size: int = 1) -> list[str]:
         return []
 
 
+def _coerce_geohash(data: dict) -> tuple[str | None, tuple[dict, int] | None]:
+    """Return (geohash, None) on success or (None, (error_payload, status)) on failure.
+
+    Accepts either a pre-computed H3 cell (`geohash` field) or raw coordinates
+    (`latitude` + `longitude`). When both are present, the explicit cell wins
+    so clients with their own H3 library bypass the server conversion.
+    Coordinates are converted in-memory only — never stored, never logged.
+    """
+    raw_geo = data.get('geohash')
+    if isinstance(raw_geo, str) and raw_geo.strip():
+        cell = raw_geo.strip()
+        if not h3.is_valid_cell(cell):
+            return None, ({'error': 'Bad Request', 'code': 'INVALID_GEOHASH',
+                           'detail': 'geohash must be a valid H3 index string'}, 400)
+        return cell, None
+
+    lat = data.get('latitude')
+    lng = data.get('longitude')
+    if lat is None or lng is None:
+        return None, ({'error': 'Bad Request', 'code': 'MISSING_LOCATION',
+                       'detail': 'provide either geohash or latitude+longitude'}, 400)
+
+    # Reject booleans explicitly (bool is a subclass of int in Python).
+    if (isinstance(lat, bool) or isinstance(lng, bool)
+            or not isinstance(lat, (int, float))
+            or not isinstance(lng, (int, float))):
+        return None, ({'error': 'Bad Request', 'code': 'INVALID_COORDINATES',
+                       'detail': 'latitude and longitude must be numbers'}, 400)
+    if not (-90 <= lat <= 90) or not (-180 <= lng <= 180):
+        return None, ({'error': 'Bad Request', 'code': 'INVALID_COORDINATES',
+                       'detail': 'latitude must be -90..90 and longitude -180..180'}, 400)
+
+    try:
+        return h3.latlng_to_cell(float(lat), float(lng), _H3_RESOLUTION), None
+    except Exception:
+        return None, ({'error': 'Bad Request', 'code': 'INVALID_COORDINATES',
+                       'detail': 'h3 conversion failed'}, 400)
+
+
 @bp.put('/geohash')
 @require_auth
 def update_geohash():
     """Store the user's H3 cell in Redis.
 
-    expected_offline extends the TTL by offline_duration_seconds so entering
+    Body accepts either:
+      • `geohash` (string) — pre-computed H3 cell from the client, or
+      • `latitude` + `longitude` (numbers) — server converts to H3 res 7
+
+    Raw coordinates are only used for the in-memory conversion. They are not
+    persisted, not logged, and not echoed back. Only the H3 cell is written
+    to Redis (matches the geohash-only-in-DB architecture invariant).
+
+    `expected_offline` extends the TTL by `offline_duration_seconds` so entering
     a tunnel / dead zone doesn't trigger a false DMS escalation.
     """
     data = request.get_json(silent=True) or {}
-    geohash = data.get('geohash', '').strip()
     status = data.get('status')
 
-    if not geohash:
-        return jsonify({'error': 'Bad Request', 'code': 'MISSING_GEOHASH'}), 400
     if status not in ('online', 'expected_offline'):
         return jsonify({
             'error': 'Bad Request', 'code': 'INVALID_STATUS',
             'detail': 'status must be online or expected_offline',
         }), 400
-    if not h3.is_valid_cell(geohash):
-        return jsonify({
-            'error': 'Bad Request', 'code': 'INVALID_GEOHASH',
-            'detail': 'geohash must be a valid H3 index string',
-        }), 400
+
+    geohash, error = _coerce_geohash(data)
+    if error is not None:
+        payload, code = error
+        return jsonify(payload), code
 
     ttl = _GEO_TTL
     if status == 'expected_offline':
         offline_secs = data.get('offline_duration_seconds', 0)
-        if not isinstance(offline_secs, int) or not (0 <= offline_secs <= _MAX_OFFLINE_SECS):
+        if (isinstance(offline_secs, bool)
+                or not isinstance(offline_secs, int)
+                or not (0 <= offline_secs <= _MAX_OFFLINE_SECS)):
             return jsonify({
                 'error': 'Bad Request', 'code': 'INVALID_OFFLINE_DURATION',
                 'detail': f'offline_duration_seconds must be 0–{_MAX_OFFLINE_SECS}',

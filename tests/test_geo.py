@@ -28,7 +28,83 @@ def test_update_geohash_missing(client, auth_headers):
                       json={'status': 'online'},
                       headers=auth_headers)
     assert resp.status_code == 400
-    assert resp.get_json()['code'] == 'MISSING_GEOHASH'
+    assert resp.get_json()['code'] == 'MISSING_LOCATION'
+
+
+# ─── lat/lng input (server-side H3 conversion) ────────────────────────────────
+
+def test_update_geohash_accepts_latlng(client, auth_user, auth_headers, mock_redis):
+    """Server converts lat/lng to H3 at res 7 and stores only the cell."""
+    user, _ = auth_user
+    # Munich Marienplatz
+    resp = client.put('/api/v1/geohash', json={
+        'latitude': 48.1374, 'longitude': 11.5755, 'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 204
+
+    stored = mock_redis.get(f'{GEO_USER}{user.id}')
+    assert stored is not None
+    # Cell must be a valid H3 index — exact value tied to h3-py's res-7 grid
+    import h3
+    assert h3.is_valid_cell(stored)
+    assert h3.get_resolution(stored) == 7
+
+
+def test_latlng_out_of_range_lat(client, auth_headers):
+    resp = client.put('/api/v1/geohash', json={
+        'latitude': 95.0, 'longitude': 11.5, 'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 400
+    assert resp.get_json()['code'] == 'INVALID_COORDINATES'
+
+
+def test_latlng_out_of_range_lng(client, auth_headers):
+    resp = client.put('/api/v1/geohash', json={
+        'latitude': 48.0, 'longitude': 200.0, 'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 400
+    assert resp.get_json()['code'] == 'INVALID_COORDINATES'
+
+
+def test_latlng_non_numeric(client, auth_headers):
+    resp = client.put('/api/v1/geohash', json={
+        'latitude': 'forty-eight', 'longitude': 11.5, 'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 400
+    assert resp.get_json()['code'] == 'INVALID_COORDINATES'
+
+
+def test_latlng_rejects_booleans(client, auth_headers):
+    """JSON booleans must not be silently treated as 0/1."""
+    resp = client.put('/api/v1/geohash', json={
+        'latitude': True, 'longitude': False, 'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 400
+    assert resp.get_json()['code'] == 'INVALID_COORDINATES'
+
+
+def test_explicit_geohash_takes_priority(client, auth_user, auth_headers, mock_redis):
+    """When both geohash and lat/lng are sent, geohash wins (client has authority)."""
+    user, _ = auth_user
+    resp = client.put('/api/v1/geohash', json={
+        'geohash': _VALID_H3,
+        'latitude': 48.1374, 'longitude': 11.5755,
+        'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 204
+    assert mock_redis.get(f'{GEO_USER}{user.id}') == _VALID_H3
+
+
+def test_latlng_with_expected_offline(client, auth_user, auth_headers, mock_redis):
+    user, _ = auth_user
+    resp = client.put('/api/v1/geohash', json={
+        'latitude': 48.1374, 'longitude': 11.5755,
+        'status': 'expected_offline',
+        'offline_duration_seconds': 120,
+    }, headers=auth_headers)
+    assert resp.status_code == 204
+    ttl = mock_redis.ttl(f'{GEO_USER}{user.id}')
+    assert 700 <= ttl <= 730
 
 
 def test_update_geohash_invalid_status(client, auth_headers):
