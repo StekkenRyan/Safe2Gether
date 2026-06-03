@@ -31,3 +31,6 @@ ALARM_RATE = f'{_P}alarm_rate:'    # + user_id  →  '1' (with TTL)
 # stage should execute, member = "<alarm_id>:<stage_index>". Worker thread
 # atomically pops due items via a Lua script. Survives api restarts.
 ESCALATION_QUEUE = f'{_P}escalation:queue'
+
+# Contact invite tokens (one-time, 24 h TTL)
+CONTACT_INVITE = f'{_P}contact_invite:'  # + token  →  inviter user_id

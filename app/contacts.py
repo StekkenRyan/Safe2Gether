@@ -1,16 +1,36 @@
 """Emergency contacts blueprint — /api/v1/contacts"""
+import os
 import re
+import secrets
 import uuid
 
+import redis as redis_lib
 from flask import Blueprint, g, jsonify, request
 
 from .db import db
 from .models import EmergencyContact, User
+from .redis_keys import CONTACT_INVITE
 from .token import require_auth
 
 bp = Blueprint('contacts', __name__, url_prefix='/api/v1/contacts')
 
 _VALID_TYPES = ('phone', 'email', 'in_app')
+_INVITE_TTL_SECS = 86_400  # 24 hours
+
+
+def _redis() -> redis_lib.Redis:
+    return redis_lib.from_url(
+        os.environ.get('REDIS_URL', 'redis://localhost:6379/0'),
+        socket_connect_timeout=2,
+        decode_responses=True,
+    )
+
+
+def _next_order(user_id: str) -> int:
+    last = EmergencyContact.query.filter_by(user_id=user_id).order_by(
+        EmergencyContact.order_in_escalation.desc()
+    ).first()
+    return (last.order_in_escalation + 1) if last else 1
 _MAX_ORDER = 100
 _PHONE_RE = re.compile(r'^\+?[0-9]{7,15}$')
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$')
@@ -125,5 +145,86 @@ def delete_contact(contact_id: str):
     if not contact:
         return jsonify({'error': 'Not Found', 'code': 'CONTACT_NOT_FOUND'}), 404
     db.session.delete(contact)
+    db.session.commit()
+    return '', 204
+
+
+# ─── Invite flow ──────────────────────────────────────────────────────────────
+
+@bp.post('/invite')
+@require_auth
+def create_invite():
+    """Generate a one-time invite token valid for 24 h.
+
+    Returns a deep-link the sender shares via iOS share sheet or QR code.
+    The recipient opens the link → app calls POST /contacts/accept → both
+    parties get an in_app contact entry pointing at each other.
+    """
+    token = secrets.token_urlsafe(16)
+    try:
+        _redis().setex(f'{CONTACT_INVITE}{token}', _INVITE_TTL_SECS, g.user_id)
+    except redis_lib.RedisError:
+        return jsonify({'error': 'Service Unavailable', 'code': 'REDIS_UNAVAILABLE'}), 503
+    return jsonify({
+        'token': token,
+        'deep_link': f'safe2gether://invite?token={token}',
+    }), 201
+
+
+@bp.post('/accept')
+@require_auth
+def accept_invite():
+    """Accept a contact invite token. Creates a bidirectional in_app contact pair."""
+    data = request.get_json(silent=True) or {}
+    token = (data.get('token') or '').strip()
+    if not token:
+        return jsonify({'error': 'Bad Request', 'code': 'MISSING_TOKEN'}), 400
+
+    try:
+        r = _redis()
+        key = f'{CONTACT_INVITE}{token}'
+        pipe = r.pipeline()
+        pipe.get(key)
+        pipe.delete(key)
+        inviter_id, _ = pipe.execute()
+    except redis_lib.RedisError:
+        return jsonify({'error': 'Service Unavailable', 'code': 'REDIS_UNAVAILABLE'}), 503
+
+    if not inviter_id:
+        return jsonify({'error': 'Not Found', 'code': 'INVALID_OR_EXPIRED_TOKEN'}), 404
+
+    accepter_id = g.user_id
+    if inviter_id == accepter_id:
+        return jsonify({'error': 'Bad Request', 'code': 'CANNOT_INVITE_YOURSELF'}), 400
+
+    inviter = db.session.get(User, inviter_id)
+    accepter = db.session.get(User, accepter_id)
+    if not inviter or not accepter:
+        return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
+
+    # Inviter gets accepter as contact (skip if duplicate)
+    if not EmergencyContact.query.filter_by(
+            user_id=inviter_id, contact_type='in_app', contact_value=accepter_id).first():
+        db.session.add(EmergencyContact(
+            id=str(uuid.uuid4()),
+            user_id=inviter_id,
+            contact_type='in_app',
+            contact_value=accepter_id,
+            name=accepter.email or 'Kontakt',
+            order_in_escalation=_next_order(inviter_id),
+        ))
+
+    # Accepter gets inviter as contact (skip if duplicate)
+    if not EmergencyContact.query.filter_by(
+            user_id=accepter_id, contact_type='in_app', contact_value=inviter_id).first():
+        db.session.add(EmergencyContact(
+            id=str(uuid.uuid4()),
+            user_id=accepter_id,
+            contact_type='in_app',
+            contact_value=inviter_id,
+            name=inviter.email or 'Kontakt',
+            order_in_escalation=_next_order(accepter_id),
+        ))
+
     db.session.commit()
     return '', 204
