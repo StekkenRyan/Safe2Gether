@@ -17,7 +17,7 @@ from sqlalchemy.exc import IntegrityError
 
 from .db import db
 from .geo import bearing_between, haversine_meters, nearby_user_ids
-from .models import Alarm, AlarmResponder, User
+from .models import Alarm, AlarmResponder, ReputationAction, User
 from .notifications import (
     EVENT_ALARM_FALSE_ALARM,
     EVENT_ALARM_RESOLVED,
@@ -35,6 +35,10 @@ bp = Blueprint('alarms', __name__, url_prefix='/api/v1/alarms')
 _ALARM_RATE_LIMIT_SECS = 60   # max 1 alarm per user per minute
 
 _VALID_STAGES = ('device_local', 'contacts', 'community', 'contacts+community')
+
+_REP_RESPONDED = 10          # pressed "Ich helfe"
+_REP_RESPONSE_VERIFIED = 5   # alarm resolved → responder's effort confirmed
+_REP_FALSE_ALARM = -5        # owner flagged own alarm as false alarm
 
 
 # ─── Redis helpers ───────────────────────────────────────────────────────────
@@ -88,6 +92,35 @@ def _route_from_receiver(receiver_cell: str | None,
         return distance_m, bearing
     except Exception:
         return 500, 0.0
+
+
+# ─── Reputation helpers ──────────────────────────────────────────────────────
+
+def _compute_level(score: int) -> str:
+    if score < -20:
+        return 'very_low'
+    if score < 0:
+        return 'low'
+    if score < 50:
+        return 'normal'
+    if score < 200:
+        return 'high'
+    return 'very_high'
+
+
+def _award_reputation(user: User, action_type: str, score_delta: int,
+                      alarm_id: str | None = None) -> None:
+    """Append a ReputationAction and update user score/level in-place.
+    Caller is responsible for db.session.commit()."""
+    db.session.add(ReputationAction(
+        id=str(uuid.uuid4()),
+        user_id=user.id,
+        action_type=action_type,
+        score_delta=score_delta,
+        alarm_id=alarm_id,
+    ))
+    user.reputation_score = (user.reputation_score or 0) + score_delta
+    user.reputation_level = _compute_level(user.reputation_score)
 
 
 # ─── Stage fan-out helpers (used inline + by the escalation worker) ──────────
@@ -344,6 +377,16 @@ def update_alarm(alarm_id: str):
                 body=msg,
             )
 
+    # Reputation updates
+    if new_status == 'resolved':
+        for ruser in responder_users:
+            _award_reputation(ruser, 'response_verified', _REP_RESPONSE_VERIFIED, alarm_id)
+    else:  # false_alarm
+        owner_user = db.session.get(User, g.user_id)
+        if owner_user:
+            _award_reputation(owner_user, 'false_alarm_triggered', _REP_FALSE_ALARM, alarm_id)
+    db.session.commit()
+
     return jsonify(alarm.to_dict())
 
 
@@ -367,6 +410,11 @@ def respond_to_alarm(alarm_id: str):
         return jsonify({'error': 'Conflict', 'code': 'ALREADY_RESPONDING'}), 409
 
     logger.info('alarm_response alarm=%s responder=%s', alarm_id, g.user_id)
+
+    responder_user = db.session.get(User, g.user_id)
+    if responder_user:
+        _award_reputation(responder_user, 'responded_to_alarm', _REP_RESPONDED, alarm_id)
+        db.session.commit()
 
     # Notify alarm owner
     owner = db.session.get(User, alarm.user_id)

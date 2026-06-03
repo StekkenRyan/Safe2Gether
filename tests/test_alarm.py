@@ -1,6 +1,9 @@
 """Alarm / Panic Button endpoint tests — /api/v1/alarms"""
 import uuid
 
+from app.db import db as _db
+from app.models import User
+
 
 def _trigger(client, headers, source='in_app', geohash=None):
     payload = {'trigger_source': source}
@@ -231,3 +234,73 @@ def test_nearby_alerting_opt_out_respected(client, app, make_user):
     resp = _trigger(client, {'Authorization': f'Bearer {owner_token}'},
                     geohash='871f1d48dffffff')
     assert resp.status_code == 201
+
+
+# ─── Reputation writes ────────────────────────────────────────────────────────
+
+def _get_reputation(client, headers):
+    return client.get('/api/v1/users/me/reputation', headers=headers).get_json()
+
+
+def test_respond_awards_reputation(client, app, make_user):
+    owner, owner_token = make_user(email='rep_owner@example.com')
+    responder, responder_token = make_user(email='rep_helper@example.com')
+    owner_headers = {'Authorization': f'Bearer {owner_token}'}
+    helper_headers = {'Authorization': f'Bearer {responder_token}'}
+
+    alarm_id = _trigger(client, owner_headers).get_json()['id']
+    client.post(f'/api/v1/alarms/{alarm_id}/respond', headers=helper_headers)
+
+    rep = _get_reputation(client, helper_headers)
+    assert rep['score'] == 10
+    assert rep['level'] == 'normal'
+    assert len(rep['recent_actions']) == 1
+    assert rep['recent_actions'][0]['action_type'] == 'responded_to_alarm'
+    assert rep['recent_actions'][0]['score_delta'] == 10
+    assert rep['recent_actions'][0]['alarm_id'] == alarm_id
+
+
+def test_resolved_awards_responder_reputation(client, app, make_user):
+    owner, owner_token = make_user(email='res_owner@example.com')
+    responder, responder_token = make_user(email='res_helper@example.com')
+    owner_headers = {'Authorization': f'Bearer {owner_token}'}
+    helper_headers = {'Authorization': f'Bearer {responder_token}'}
+
+    alarm_id = _trigger(client, owner_headers).get_json()['id']
+    client.post(f'/api/v1/alarms/{alarm_id}/respond', headers=helper_headers)
+    client.patch(f'/api/v1/alarms/{alarm_id}',
+                 json={'status': 'resolved'}, headers=owner_headers)
+
+    rep = _get_reputation(client, helper_headers)
+    # +10 for responding, +5 for response_verified
+    assert rep['score'] == 15
+    action_types = {a['action_type'] for a in rep['recent_actions']}
+    assert 'responded_to_alarm' in action_types
+    assert 'response_verified' in action_types
+
+
+def test_false_alarm_penalizes_owner(client, app, make_user):
+    owner, owner_token = make_user(email='fa_owner@example.com')
+    owner_headers = {'Authorization': f'Bearer {owner_token}'}
+
+    alarm_id = _trigger(client, owner_headers).get_json()['id']
+    client.patch(f'/api/v1/alarms/{alarm_id}',
+                 json={'status': 'false_alarm'}, headers=owner_headers)
+
+    rep = _get_reputation(client, owner_headers)
+    assert rep['score'] == -5
+    assert rep['level'] == 'low'
+    assert rep['recent_actions'][0]['action_type'] == 'false_alarm_triggered'
+
+
+def test_owner_reputation_unaffected_by_resolve(client, app, make_user):
+    """Resolving an alarm does not touch the owner's score — only responders earn."""
+    owner, owner_token = make_user(email='res2_owner@example.com')
+    owner_headers = {'Authorization': f'Bearer {owner_token}'}
+
+    alarm_id = _trigger(client, owner_headers).get_json()['id']
+    client.patch(f'/api/v1/alarms/{alarm_id}',
+                 json={'status': 'resolved'}, headers=owner_headers)
+
+    rep = _get_reputation(client, owner_headers)
+    assert rep['score'] == 0
