@@ -17,7 +17,7 @@ from flask import Flask
 
 from .db import db
 from .models import SafetyTimer, User
-from .notifications import send_alarm_update, send_nearby_alert, send_timer_checkin_request
+from .notifications import send_alarm_update, send_timer_checkin_request
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +50,10 @@ def _step_checkin_request(now: datetime) -> None:
         user = db.session.get(User, timer.user_id)
         if not user or not user.apns_device_token:
             timer.status = 'triggered'
-            logger.info('timer_no_device_token user=%s timer=%s — marking triggered', timer.user_id, timer.id)
+            logger.info(
+                'timer_no_device_token user=%s timer=%s '
+                '— marking triggered', timer.user_id, timer.id
+            )            
             db.session.commit()
             continue
 

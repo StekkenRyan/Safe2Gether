@@ -33,7 +33,10 @@ def create_timer():
     data = request.get_json(silent=True) or {}
 
     duration = data.get('duration_seconds')
-    if not isinstance(duration, int) or not (_MIN_DURATION_SECONDS <= duration <= _MAX_DURATION_SECONDS):
+    is_valid_duration = isinstance(duration, int) and (
+        _MIN_DURATION_SECONDS <= duration <= _MAX_DURATION_SECONDS
+    )
+    if not is_valid_duration:
         return jsonify({
             'error': 'Bad Request', 'code': 'INVALID_DURATION',
             'detail': f'duration_seconds must be an integer between '
