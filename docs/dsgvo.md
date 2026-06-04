@@ -1,6 +1,6 @@
 # DSGVO-Entwurf — Safe2Gether
 
-*Stand: 2026-05-31 — Interner Arbeitsentwurf, kein rechtsgültiges Dokument*
+*Stand: 2026-06-04 — Interner Arbeitsentwurf, kein rechtsgültiges Dokument*
 
 Dieser Entwurf dokumentiert alle datenschutzrelevanten Entscheidungen für v1.0.
 Er ist die Grundlage für die öffentliche Datenschutzerklärung, die **vor dem Launch live sein muss**.
@@ -108,14 +108,21 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 
 | Empfänger | Zweck | Datenweitergabe | Rechtsgrundlage |
 |-----------|-------|----------------|----------------|
+| **Hetzner Online GmbH** (DE) | Storage Box: tägliche Off-Site-Backups (DB-Dumps, Website-Dateien) via rsync | Alle gesicherten Dateien at rest auf der Storage Box | Art. 6 Abs. 1 lit. f (Berechtigtes Interesse: Verfügbarkeit) |
 | **Apple APNs** | Push-Benachrichtigungen (Alarme, DMS) | APNs Device Token | Art. 6 Abs. 1 lit. b |
 | **Apple Sign In** | Authentifizierung | Sub (anonyme ID) + optional E-Mail via Privacy Relay | Art. 6 Abs. 1 lit. b |
 | **Google Sign In** | Authentifizierung | Sub + E-Mail | Art. 6 Abs. 1 lit. b |
-| **Cloudflare** | CDN / Tunnel / DDoS-Schutz | IP-Adressen, HTTP-Metadaten | Art. 6 Abs. 1 lit. f (Sicherheit) |
-| **SMS-Provider** (TBD) | OTP-Versand | Telefonnummer | Art. 6 Abs. 1 lit. a |
+| **Cloudflare** (US, EU-Rechenzentrum) | CDN / Tunnel / DDoS-Schutz | IP-Adressen, HTTP-Metadaten | Art. 6 Abs. 1 lit. f (Sicherheit) |
+| **Brevo / Sendinblue SAS** (FR) | Transaktionale E-Mails (Auth-Links, Sicherheitshinweise) | E-Mail-Adresse, Betreff, Inhalt der Transaktions-E-Mail | Art. 6 Abs. 1 lit. b (Vertragserfüllung) |
+| **Strato AG** (DE) | E-Mail-Postfach `kontakt@safe2gether.de` | Inhalte + Metadaten eingehender E-Mails | Art. 6 Abs. 1 lit. f (Berechtigtes Interesse: Erreichbarkeit) |
+| **SMS-Provider** (TBD) | OTP-Versand für Telefonnummer-Verifikation | Telefonnummer | Art. 6 Abs. 1 lit. a (Einwilligung) |
 | **Firebase/FCM** | **Nicht verwendet** — APNs direkt | — | — |
 
 **Kein Tracking, keine Werbung, keine Datenweitergabe an Dritte zu Marketingzwecken.**
+
+> **Hinweis Hetzner Storage Box**: Der Pi rsynct täglich PostgreSQL-Dumps und Website-Dateien
+> auf eine Hetzner Storage Box (DE-Rechenzentrum). Hetzner agiert als Auftragsverarbeiter (AVV
+> abzuschließen unter *Hetzner Robot → Einstellungen → Auftragsverarbeitungsvertrag*).
 
 ---
 
@@ -144,7 +151,9 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 | Zugriffskontrolle | JWT-Auth für alle API-Endpunkte; Redis nur intern erreichbar |
 | Datensparsamkeit | Geohash statt Koordinaten; Notfallkontakte lokal auf Gerät |
 | Löschkonzept | 30-Tage-Auto-Delete für Alarm-Historie; Redis TTL für Session/Geo-State |
-| Keine Drittland-Übertragung | Server auf `sora` (DE); Cloudflare EU-Rechenzentrum konfigurieren |
+| Datensicherung | Tägliche Off-Site-Sicherung via rsync auf Hetzner Storage Box (DE); lokale DB-Dumps 30 Tage via `scripts/backup.sh` |
+| E-Mail-Versand | Transaktionale E-Mails ausschließlich via Brevo (SMTP-Relay); kein Marketing-Tracking |
+| Keine Drittland-Übertragung | Server auf `sora` (DE); Cloudflare EU-Rechenzentrum konfigurieren; Hetzner DE; Brevo FR (EU) |
 | Logging | Kein personenbezogenes Logging in Produktions-Logs (IPs maskieren) |
 
 ---
@@ -154,6 +163,10 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 Diese Punkte **müssen** vor dem App-Store-Launch geklärt und implementiert sein:
 
 - [x] **Verantwortlichen** festlegen (Paul Czymek) und in Datenschutzerklärung eintragen
+- [x] **E-Mail-Provider** festgelegt: Brevo (Versand via SMTP-Relay) + Strato (Postfach `kontakt@safe2gether.de`)
+- [ ] **Brevo AVV** abschließen (im Brevo Dashboard unter *Einstellungen → Rechtliches → DPA*)
+- [ ] **Strato AVV** abschließen (Strato bietet Standard-AVV für Hosting-/Mailkunden)
+- [ ] **Hetzner AVV** abschließen (Hetzner Robot → *Einstellungen → Auftragsverarbeitungsvertrag*)
 - [ ] **SMS-Provider** wählen (Twilio, Vonage, etc.) → Auftragsverarbeitungsvertrag (AVV) abschließen
 - [ ] **Cloudflare AVV** abschließen (kostenlos im Dashboard verfügbar)
 - [ ] **Apple / Google** AVV prüfen (i.d.R. in Developer Agreement enthalten)

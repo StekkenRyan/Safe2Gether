@@ -127,7 +127,93 @@ Zero-Downtime-Update bei mehreren Nodes:
 
 ---
 
-## 5. Backup wiederherstellen
+## 5. Website-Verzeichnis in Hetzner-Storage-Box-Backup einbeziehen
+
+Der Pi rsynct täglich auf eine Hetzner Storage Box. Dieser Abschnitt beschreibt,
+wie das `Website`-Verzeichnis in denselben Backup-Flow eingebunden wird.
+
+### Schritt 1 — Bestehenden rsync-Cron prüfen
+
+```bash
+crontab -l
+# oder falls als root:
+sudo crontab -l
+```
+
+Du siehst dort bereits einen Eintrag, der die Webserver-Daten auf die Storage Box schreibt —
+meistens in der Form:
+
+```cron
+0 3 * * * rsync -avz --delete -e "ssh -p 23" /var/www/Webserver/ \
+    uXXXXXX@uXXXXXX.your-storagebox.de:/webserver/ \
+    >> /var/log/backup-webserver.log 2>&1
+```
+
+### Schritt 2 — Website-Verzeichnis in denselben Cron ergänzen
+
+Option A: Eigene Cron-Zeile (empfohlen — unabhängiger Lauf, eigenes Log):
+
+```bash
+crontab -e
+```
+
+Folgende Zeile hinzufügen (Pfade anpassen):
+
+```cron
+0 3 * * * rsync -avz --delete -e "ssh -p 23" /var/www/Website/ \
+    uXXXXXX@uXXXXXX.your-storagebox.de:/website/ \
+    >> /var/log/backup-website.log 2>&1
+```
+
+Option B: In ein bestehendes Backup-Script eintragen (wenn der Webserver-Nachbar
+bereits ein zentrales Script hat, das mehrere Verzeichnisse sichert):
+
+```bash
+# Im bestehenden Script eine weitere rsync-Zeile ergänzen:
+rsync -avz --delete -e "ssh -p 23" /var/www/Website/ \
+    uXXXXXX@uXXXXXX.your-storagebox.de:/website/
+```
+
+### Schritt 3 — SSH-Key für die Storage Box prüfen
+
+Der Key muss bereits hinterlegt sein (für den Webserver-Backup läuft er ja schon).
+Testen:
+
+```bash
+ssh -p 23 uXXXXXX@uXXXXXX.your-storagebox.de
+```
+
+Wenn das ohne Passwort-Prompt klappt, ist alles bereit.
+
+### Schritt 4 — Dry-run ausführen
+
+```bash
+rsync -avzn --delete -e "ssh -p 23" /var/www/Website/ \
+    uXXXXXX@uXXXXXX.your-storagebox.de:/website/
+```
+
+`-n` = dry-run, macht nichts, zeigt nur was übertragen würde. Sieht gut aus → `-n` entfernen.
+
+### Schritt 5 — Ergebnis auf der Storage Box prüfen
+
+```bash
+ssh -p 23 uXXXXXX@uXXXXXX.your-storagebox.de ls -lh /website/
+```
+
+---
+
+## 5a. Backup wiederherstellen — Website
+
+```bash
+# Von der Storage Box zurückholen:
+rsync -avz -e "ssh -p 23" \
+    uXXXXXX@uXXXXXX.your-storagebox.de:/website/ \
+    /var/www/Website/
+```
+
+---
+
+## 6. Backup wiederherstellen — Datenbank
 
 ```bash
 # Alle Services stoppen:
@@ -150,7 +236,7 @@ make health
 
 ---
 
-## 6. Logs prüfen
+## 7. Logs prüfen
 
 ```bash
 # Flask API Logs (live):
@@ -171,7 +257,7 @@ docker compose logs cloudflared
 
 ---
 
-## 7. TrueNAS SCALE — Docker Compose deployen
+## 8. TrueNAS SCALE — Docker Compose deployen
 
 TrueNAS SCALE (Electric Eel+) unterstützt Docker Compose direkt.
 
@@ -215,7 +301,7 @@ services:
 
 ---
 
-## 8. Häufige Probleme
+## 9. Häufige Probleme
 
 ### Flask startet nicht / `DATABASE_URL` Fehler
 
