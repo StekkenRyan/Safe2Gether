@@ -1,18 +1,23 @@
-# Landing-page overlay — used ON TOP of prod (+ optionally dev-server):
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
-#                  [-f docker-compose.dev-server.yml] \
+# Nginx reverse proxy overlay (HTTP only — Cloudflare Tunnel handles TLS).
+#
+# Usage:
+#   docker compose -f docker-compose.yml \
+#                  -f docker-compose.prod.yml \
 #                  -f docker-compose.nginx.yml up -d
 #
-# Serves landing/ as static site.
-# Cloudflare dashboard → Tunnel → Public Hostnames → add:
-#   safe2gether.de      →  http://nginx:80
-#   www.safe2gether.de  →  http://nginx:80
+# Cloudflare Tunnel → Public Hostnames:
+#   safe2gether.de      → http://nginx:80
+#   api.safe2gether.de  → http://nginx:80
+#
+# SSL mode in Cloudflare dashboard: Full (not strict)
+# The tunnel itself encrypts the Cloudflare ↔ Pi connection;
+# no certificate is needed on the origin side.
 
 services:
   nginx:
     image: nginx:1.27-alpine
     volumes:
-      - ./landing:/usr/share/nginx/html:ro
+      - ./nginx/safe2gether.conf:/etc/nginx/conf.d/safe2gether.conf:ro
     # no ports — cloudflared handles all ingress
     restart: always
     depends_on:
