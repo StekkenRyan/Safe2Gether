@@ -108,7 +108,7 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 
 | Empfänger | Zweck | Datenweitergabe | Rechtsgrundlage |
 |-----------|-------|----------------|----------------|
-| **Hetzner Online GmbH** (DE) | Storage Box: tägliche Off-Site-Backups (DB-Dumps, Website-Dateien) via rsync | Alle gesicherten Dateien at rest auf der Storage Box | Art. 6 Abs. 1 lit. f (Berechtigtes Interesse: Verfügbarkeit) |
+| **Hetzner Online GmbH** (DE) | Storage Box: tägliche Off-Site-Backups (DB-Dumps, Website-Dateien) via rsync — **kein Hosting** | Datenbank-Dumps und Website-Dateien at rest auf der Storage Box | Art. 6 Abs. 1 lit. f (Berechtigtes Interesse: Verfügbarkeit) |
 | **Apple APNs** | Push-Benachrichtigungen (Alarme, DMS) | APNs Device Token | Art. 6 Abs. 1 lit. b |
 | **Apple Sign In** | Authentifizierung | Sub (anonyme ID) + optional E-Mail via Privacy Relay | Art. 6 Abs. 1 lit. b |
 | **Google Sign In** | Authentifizierung | Sub + E-Mail | Art. 6 Abs. 1 lit. b |
