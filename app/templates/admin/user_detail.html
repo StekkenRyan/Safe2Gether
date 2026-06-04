@@ -1,0 +1,145 @@
+{% extends "admin/base.html" %}
+{% set active_nav = 'users' %}
+
+{% block title %}Nutzer {{ user.id[:8] }} — Safe2Gether Admin{% endblock %}
+
+{% block admin_content %}
+<main class="flex-1 px-4 sm:px-6 py-6 max-w-4xl mx-auto w-full space-y-6">
+
+  <div class="flex items-center gap-3">
+    <a href="/admin/users" class="text-xs text-slate-500 hover:text-slate-300 transition-colors">
+      ← Nutzerliste
+    </a>
+    <span class="text-slate-700 text-xs">/</span>
+    <span class="text-xs text-slate-400 font-mono">{{ user.id[:8] }}…</span>
+  </div>
+
+  <!-- Info card -->
+  <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-5 space-y-0">
+    <div class="flex items-start justify-between mb-4">
+      <div>
+        <h1 class="text-base font-semibold text-slate-100">
+          {{ user.email or ('Apple: ' + user.apple_sub[:12] + '…' if user.apple_sub else user.id[:12] + '…') }}
+        </h1>
+        <div class="text-xs text-slate-500 font-mono mt-0.5">{{ user.id }}</div>
+      </div>
+      <div class="flex items-center gap-2 flex-shrink-0">
+        {% if not user.is_active %}
+        <span class="px-2.5 py-0.5 rounded-full text-xs bg-red-500/10 border border-red-500/30
+                     text-red-400 font-medium">Deaktiviert</span>
+        {% else %}
+        <span class="px-2.5 py-0.5 rounded-full text-xs bg-teal-500/10 border border-teal-500/25
+                     text-teal-400 font-medium">Aktiv</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <div class="grid grid-cols-2 sm:grid-cols-3 gap-x-8 gap-y-3 text-sm">
+      {% macro field(label, value, mono=False) %}
+      <div>
+        <div class="text-xs text-slate-500 mb-0.5">{{ label }}</div>
+        <div class="text-xs {{ 'font-mono' if mono else '' }} text-slate-200">
+          {{ value if value is not none and value != '' else '—' }}
+        </div>
+      </div>
+      {% endmacro %}
+      {{ field('E-Mail', user.email) }}
+      {{ field('Telefon', user.phone_number) }}
+      {{ field('Auth-Provider', user.auth_provider, mono=True) }}
+      {{ field('Reputation Level', user.reputation_level, mono=True) }}
+      {{ field('Reputation Score', user.reputation_score) }}
+      {{ field('Nearby Alerting', 'aktiv' if user.nearby_alerting_enabled else 'deaktiviert') }}
+      {{ field('Push-Token', 'vorhanden' if user.apns_device_token else '—') }}
+      {{ field('Registriert', user.created_at | dt('%d.%m.%Y %H:%M')) }}
+      {{ field('Löschanfrage', user.scheduled_deletion_at | dt) }}
+    </div>
+  </div>
+
+  <!-- Admin actions -->
+  <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+    <div class="text-xs font-medium text-slate-400 mb-3">Admin-Aktionen</div>
+    <div class="flex flex-wrap gap-2">
+
+      <!-- Reset score -->
+      <form method="post" action="/admin/users/{{ user.id }}/reset-score"
+            onsubmit="return confirm('Score auf 0 und Level auf normal zurücksetzen?')">
+        <button type="submit"
+                class="px-3.5 py-1.5 rounded-lg text-xs border transition-colors
+                       bg-slate-700/40 border-slate-600 text-slate-300
+                       hover:bg-slate-700/80 hover:border-slate-500">
+          Score zurücksetzen
+        </button>
+      </form>
+
+      <!-- Deactivate / Reactivate -->
+      {% if user.is_active %}
+      <form method="post" action="/admin/users/{{ user.id }}/deactivate"
+            onsubmit="return confirm('Nutzer deaktivieren? Er kann sich nicht mehr einloggen.')">
+        <button type="submit"
+                class="px-3.5 py-1.5 rounded-lg text-xs border transition-colors
+                       bg-red-500/10 border-red-500/30 text-red-400
+                       hover:bg-red-500/20 hover:border-red-500/50">
+          Deaktivieren
+        </button>
+      </form>
+      {% else %}
+      <form method="post" action="/admin/users/{{ user.id }}/reactivate"
+            onsubmit="return confirm('Nutzer wieder aktivieren?')">
+        <button type="submit"
+                class="px-3.5 py-1.5 rounded-lg text-xs border transition-colors
+                       bg-teal-500/10 border-teal-500/25 text-teal-400
+                       hover:bg-teal-500/20 hover:border-teal-500/40">
+          Reaktivieren
+        </button>
+      </form>
+      {% endif %}
+
+    </div>
+  </div>
+
+  <!-- Reputation actions -->
+  <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-slate-700/40">
+      <span class="text-xs font-medium text-slate-400">
+        Reputations-Events (letzte 50, max. 30 Tage)
+      </span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 text-left border-b border-slate-700/40">
+            <th class="px-4 py-2 font-medium">Typ</th>
+            <th class="px-4 py-2 font-medium text-right">Delta</th>
+            <th class="px-4 py-2 font-medium">Alarm-ID</th>
+            <th class="px-4 py-2 font-medium">Zeitpunkt</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for a in actions %}
+          <tr class="border-t border-slate-700/30">
+            <td class="px-4 py-2 text-xs font-mono text-slate-300">{{ a.action_type }}</td>
+            <td class="px-4 py-2 text-xs text-right tabular-nums font-mono
+              {% if a.score_delta > 0 %}text-teal-400{% else %}text-red-400{% endif %}">
+              {{ '+' if a.score_delta > 0 else '' }}{{ a.score_delta }}
+            </td>
+            <td class="px-4 py-2 text-xs font-mono text-slate-600">
+              {{ a.alarm_id[:8] + '…' if a.alarm_id else '—' }}
+            </td>
+            <td class="px-4 py-2 text-xs text-slate-500">
+              {{ a.created_at | dt('%d.%m. %H:%M') }}
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="4" class="px-4 py-6 text-center text-xs text-slate-600">
+              Keine Reputations-Events in den letzten 30 Tagen.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+{% endblock %}

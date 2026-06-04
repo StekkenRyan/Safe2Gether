@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Safe2Gether{% endblock %}</title>
+  <meta name="description" content="{% block meta_description %}Community-Sicherheits-App für den deutschsprachigen Raum.{% endblock %}">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            navy: { DEFAULT: '#0f172a', surface: '#1e293b', border: '#1e3a5f' },
+            teal: { DEFAULT: '#2dd4bf', dim: 'rgba(45,212,191,0.12)', border: 'rgba(45,212,191,0.25)' },
+            cyan: { accent: '#02D9FE' },
+          }
+        }
+      }
+    }
+  </script>
+  {% block head_extra %}{% endblock %}
+</head>
+<body class="bg-[#0f172a] text-slate-100 min-h-screen flex flex-col antialiased">
+  {% block body %}{% endblock %}
+</body>
+</html>

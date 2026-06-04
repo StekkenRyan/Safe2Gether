@@ -246,7 +246,7 @@ def update_device_token():
         return jsonify({'error': 'Bad Request', 'code': 'INVALID_ENVIRONMENT'}), 400
 
     user = db.session.get(User, g.user_id)
-    if not user:
+    if not user or not user.is_active:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
 
     user.apns_device_token = device_token

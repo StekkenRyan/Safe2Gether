@@ -4,6 +4,8 @@ import os
 import redis as redis_lib
 from flask import Blueprint, g, jsonify, request
 
+from .db import db
+from .models import User
 from .redis_keys import HB
 from .token import require_auth
 
@@ -24,6 +26,10 @@ def _redis() -> redis_lib.Redis:
 @bp.post('/heartbeat')
 @require_auth
 def send_heartbeat():
+    user = db.session.get(User, g.user_id)
+    if not user or not user.is_active:
+        return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
+
     data = request.get_json(silent=True) or {}
     status = data.get('status')
 

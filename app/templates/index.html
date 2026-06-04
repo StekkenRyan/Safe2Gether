@@ -1,0 +1,253 @@
+{% extends "base.html" %}
+
+{% block title %}Safe2Gether — Sicherheit, die im Notfall für dich spricht{% endblock %}
+{% block meta_description %}Community-Sicherheits-App für den deutschsprachigen Raum. Panic Button, Nearby Alerting, Dead Man's Switch. Kostenlos.{% endblock %}
+
+{% block head_extra %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --primary:    #02D9FE;
+    --accent:     #27B0A0;
+    --bg:         #0F2132;
+    --surface:    #162940;
+    --text-1:     #e0f7ff;
+    --text-2:     rgba(224,247,255,0.65);
+    --text-3:     rgba(224,247,255,0.32);
+    --grid-color: rgba(2,217,254,0.06);
+  }
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    background-color: var(--bg);
+    color: var(--text-1);
+    display: flex;
+    flex-direction: column;
+    -webkit-font-smoothing: antialiased;
+    overflow-x: hidden;
+  }
+  .retro-grid {
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    perspective: 600px; overflow: hidden;
+  }
+  .retro-grid__inner {
+    position: absolute; bottom: 0; left: -50%; right: -50%; height: 60vh;
+    transform: rotateX(60deg); transform-origin: bottom center;
+    background-image:
+      linear-gradient(var(--grid-color) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+    background-size: 60px 60px;
+  }
+  .retro-grid::after {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(to bottom, var(--bg) 0%, transparent 35%, transparent 65%, var(--bg) 100%);
+  }
+  .retro-sun {
+    position: fixed; bottom: 14vh; left: 50%; transform: translateX(-50%);
+    width: 360px; height: 360px; border-radius: 50%;
+    background: conic-gradient(from 0deg, var(--primary) 0%, var(--accent) 40%, var(--bg) 60%, var(--primary) 100%);
+    filter: blur(80px); opacity: 0.11; pointer-events: none; z-index: 0;
+  }
+  main, footer, section { position: relative; z-index: 1; }
+  .hero {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    justify-content: center; text-align: center; padding: 5rem 2rem 2.5rem;
+  }
+  .hero-eyebrow {
+    font-size: 0.6875rem; font-weight: 500; letter-spacing: 0.18em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 1.75rem;
+  }
+  .wordmark {
+    font-size: clamp(3.5rem, 14vw, 8rem); font-weight: 700; letter-spacing: -0.01em;
+    color: var(--primary); line-height: 1; user-select: none;
+    text-shadow: 0 0 80px rgba(2,217,254,0.2);
+  }
+  .wordmark .two { color: #ffffff; text-shadow: 0 0 60px rgba(255,255,255,0.2); }
+  .ekg-row {
+    margin: 2rem 0 1.5rem; display: flex; align-items: center; gap: 1rem; opacity: 0.45;
+  }
+  .ekg-row::before, .ekg-row::after {
+    content: ''; height: 1px; width: 56px;
+    background: linear-gradient(to right, transparent, var(--accent));
+  }
+  .ekg-row::after { background: linear-gradient(to left, transparent, var(--accent)); }
+  .tagline {
+    font-size: clamp(1rem, 2.4vw, 1.2rem); font-weight: 400; color: var(--text-2);
+    line-height: 1.7; max-width: 32ch;
+  }
+  .hero-badge {
+    margin-top: 2.5rem; display: inline-flex; align-items: center; gap: 0.6rem;
+    padding: 0.5rem 1.25rem; background: rgba(39,176,160,0.07);
+    border: 1px solid rgba(39,176,160,0.28); border-radius: 100px;
+    font-size: 0.8rem; font-weight: 500; color: var(--accent);
+    letter-spacing: 0.06em; text-transform: uppercase;
+  }
+  .hero-badge::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent); box-shadow: 0 0 8px var(--accent); flex-shrink: 0;
+    animation: blink 2.4s ease-in-out infinite;
+  }
+  @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.25; } }
+  .features { padding: 0.5rem 2rem 3rem; max-width: 900px; margin: 0 auto; width: 100%; }
+  .features-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }
+  .feature-card {
+    background: var(--surface); border: 1px solid rgba(2,217,254,0.07); border-radius: 16px;
+    padding: 1.5rem; transition: border-color 0.25s, transform 0.25s;
+  }
+  .feature-card:hover { border-color: rgba(2,217,254,0.18); transform: translateY(-3px); }
+  .feature-card__icon {
+    width: 44px; height: 44px; border-radius: 12px; display: flex;
+    align-items: center; justify-content: center; margin-bottom: 1rem;
+  }
+  .feature-card__icon svg { width: 20px; height: 20px; }
+  .icon--cyan { background: rgba(2,217,254,0.09);  color: var(--primary); }
+  .icon--teal { background: rgba(39,176,160,0.11); color: var(--accent);  }
+  .feature-card h3 { font-size: 0.9375rem; font-weight: 600; color: var(--text-1); margin-bottom: 0.5rem; }
+  .feature-card p { font-size: 0.875rem; color: var(--text-2); line-height: 1.65; }
+  .infobar-wrap { padding: 0 2rem 4rem; max-width: 900px; margin: 0 auto; width: 100%; }
+  .infobar {
+    display: flex; align-items: center; justify-content: center; gap: 0;
+    background: var(--surface); border: 1px solid rgba(2,217,254,0.07);
+    border-radius: 16px; overflow: hidden; flex-wrap: wrap;
+  }
+  .infobar-item {
+    display: flex; flex-direction: column; align-items: center; gap: 0.3rem;
+    padding: 1.25rem 1.75rem; flex: 1; min-width: 120px;
+  }
+  .infobar-item + .infobar-item { border-left: 1px solid rgba(2,217,254,0.07); }
+  .infobar-item__label {
+    font-size: 0.625rem; font-weight: 500; letter-spacing: 0.12em;
+    text-transform: uppercase; color: var(--text-3);
+  }
+  .infobar-item__value { font-size: 0.875rem; font-weight: 500; color: var(--accent); }
+  footer {
+    padding: 1.5rem 2rem; text-align: center; font-size: 0.8rem; color: var(--text-3);
+    border-top: 1px solid rgba(2,217,254,0.06);
+  }
+  footer a { color: var(--text-3); text-decoration: none; transition: color 0.2s; }
+  footer a:hover { color: var(--text-2); }
+  @media (max-width: 480px) {
+    .infobar { flex-direction: column; }
+    .infobar-item + .infobar-item { border-left: none; border-top: 1px solid rgba(2,217,254,0.07); }
+  }
+</style>
+{% endblock %}
+
+{% block body %}
+  <div class="retro-grid" aria-hidden="true"><div class="retro-grid__inner"></div></div>
+  <div class="retro-sun" aria-hidden="true"></div>
+
+  <main>
+    <section class="hero">
+      <div class="hero-eyebrow">iOS · DACH · Community</div>
+      <div class="wordmark">Safe<span class="two">2</span>Gether</div>
+      <div class="ekg-row" aria-hidden="true">
+        <svg width="120" height="20" viewBox="0 0 120 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <polyline points="0,10 20,10 28,2 34,18 40,4 46,16 52,10 120,10"
+            stroke="#27B0A0" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <p class="tagline">Für alle, die allein unterwegs sind.<br>Sicherheit, die im Notfall für dich spricht.</p>
+      <span class="hero-badge">Bald verfügbar &nbsp;·&nbsp; DACH</span>
+    </section>
+
+    <section class="features" aria-label="Kernfunktionen">
+      <div class="features-grid">
+        <article class="feature-card">
+          <div class="feature-card__icon icon--cyan">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+          </div>
+          <h3>Panic Button</h3>
+          <p>Ein Klick. Notfallkontakte und Nearby-Nutzer werden sofort alarmiert — anonym, direkt, ohne Umweg über den Server.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon icon--teal">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+              <circle cx="9" cy="7" r="4"/>
+              <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+              <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+            </svg>
+          </div>
+          <h3>Nearby Alerting</h3>
+          <p>Anonyme Nutzer in der Nähe werden per Push benachrichtigt — stilles Sicherheitsnetz aus der Community heraus.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon icon--cyan">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10"/>
+              <polyline points="12 6 12 12 16 14"/>
+            </svg>
+          </div>
+          <h3>Dead Man's Switch</h3>
+          <p>Kein Signal mehr? Der Server eskaliert. Passiv, immer aktiv — auch wenn das Handy weg ist oder kein Netz besteht.</p>
+        </article>
+        <article class="feature-card">
+          <div class="feature-card__icon icon--teal">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+                 stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+            </svg>
+          </div>
+          <h3>Vertrauenskreis</h3>
+          <p>Notfallkontakte per Einladungslink — verschlüsselt auf deinem Gerät gespeichert. Kein zentrales Adressbuch.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="infobar-wrap" aria-label="Projektinfo">
+      <div class="infobar">
+        <div class="infobar-item">
+          <span class="infobar-item__label">Modell</span>
+          <span class="infobar-item__value">Freemium</span>
+        </div>
+        <div class="infobar-item">
+          <span class="infobar-item__label">Sicherheit</span>
+          <span class="infobar-item__value">Immer gratis</span>
+        </div>
+        <div class="infobar-item">
+          <span class="infobar-item__label">Plattform</span>
+          <span class="infobar-item__value">iOS first</span>
+        </div>
+        <div class="infobar-item">
+          <span class="infobar-item__label">Lizenz</span>
+          <span class="infobar-item__value">AGPL v3</span>
+        </div>
+        <div class="infobar-item">
+          <span class="infobar-item__label">Stack</span>
+          <span class="infobar-item__value">Open Source</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="infobar-wrap" aria-label="App herunterladen" style="padding-top:0;">
+      <div style="text-align:center;">
+        <a href="#" aria-label="Im App Store herunterladen"
+           style="display:inline-block; padding:0.75rem 2rem; background:rgba(2,217,254,0.07);
+                  border:1px solid rgba(2,217,254,0.25); border-radius:14px; color:var(--text-2);
+                  text-decoration:none; font-size:0.9rem; font-weight:500; transition:border-color 0.2s;">
+          App Store &nbsp;— &nbsp;Bald verfügbar
+        </a>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <a href="/datenschutz">Datenschutzerklärung</a>
+    &nbsp;·&nbsp;
+    <a href="/impressum">Impressum</a>
+    &nbsp;·&nbsp;
+    AGPL v3
+    &nbsp;·&nbsp;
+    Made in DACH
+  </footer>
+{% endblock %}

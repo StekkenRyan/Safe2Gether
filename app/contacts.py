@@ -80,6 +80,13 @@ def create_contact():
         return jsonify({'error': 'Bad Request', 'code': 'INVALID_CONTACT_VALUE',
                         'detail': err}), 400
 
+    # Verify in_app target exists and is active before storing a dangling reference
+    if contact_type == 'in_app':
+        target = db.session.get(User, contact_value)
+        if not target or not target.is_active:
+            return jsonify({'error': 'Bad Request', 'code': 'INVALID_CONTACT_VALUE',
+                            'detail': 'contact_value must be a valid active user id'}), 400
+
     user = db.session.get(User, g.user_id)
     if not user or not user.is_active:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
@@ -181,12 +188,9 @@ def accept_invite():
         return jsonify({'error': 'Bad Request', 'code': 'MISSING_TOKEN'}), 400
 
     try:
-        r = _redis()
-        key = f'{CONTACT_INVITE}{token}'
-        pipe = r.pipeline()
-        pipe.get(key)
-        pipe.delete(key)
-        inviter_id, _ = pipe.execute()
+        # GETDEL is atomic (Redis 6.2+): eliminates the race where two concurrent
+        # requests both read the key before either deletes it.
+        inviter_id = _redis().getdel(f'{CONTACT_INVITE}{token}')
     except redis_lib.RedisError:
         return jsonify({'error': 'Service Unavailable', 'code': 'REDIS_UNAVAILABLE'}), 503
 

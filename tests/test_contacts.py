@@ -34,9 +34,11 @@ def test_create_email_contact(client, auth_headers):
     assert resp.get_json()['contact_type'] == 'email'
 
 
-def test_create_in_app_contact(client, auth_headers):
+def test_create_in_app_contact(client, auth_headers, make_user):
+    # in_app contacts now require a valid, active user UUID
+    target_user, _ = make_user(email='in_app_target@example.com')
     resp = _create(client, auth_headers,
-                   contact_type='in_app', contact_value=str(uuid.uuid4()))
+                   contact_type='in_app', contact_value=target_user.id)
     assert resp.status_code == 201
 
 

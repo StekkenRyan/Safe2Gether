@@ -9,6 +9,7 @@ Payload contract (consumed by iOS `Core/Notifications/PushPayload.swift`):
                 responder_count
   alarm_update: event (discriminator), body text in aps.alert.body
 """
+import functools
 import logging
 import os
 import threading
@@ -40,6 +41,19 @@ def _apns_host() -> str:
     return _APNS_SANDBOX_HOST if sandbox else _APNS_PROD_HOST
 
 
+@functools.lru_cache(maxsize=2)
+def _load_private_key(key_path: str):
+    """Load the APNs .p8 signing key from disk, cached per path.
+
+    lru_cache is thread-safe (GIL + internal lock). maxsize=2 covers the
+    uncommon case of running sandbox and production keys side by side.
+    Key rotation requires a process restart to pick up the new file.
+    """
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    with open(key_path, 'rb') as f:
+        return load_pem_private_key(f.read(), password=None)
+
+
 def _send_apns(device_token: str, payload: dict, environment: str = 'sandbox') -> None:
     """Send a single APNs push. Called in a background thread."""
     key_path = os.environ.get('APNS_KEY_PATH', '')
@@ -53,11 +67,8 @@ def _send_apns(device_token: str, payload: dict, environment: str = 'sandbox') -
 
     try:
         import jwt as pyjwt
-        from cryptography.hazmat.primitives.serialization import load_pem_private_key
 
-        with open(key_path, 'rb') as f:
-            private_key = load_pem_private_key(f.read(), password=None)
-
+        private_key = _load_private_key(key_path)
         token = pyjwt.encode(
             {'iss': team_id, 'iat': int(time.time())},
             private_key,

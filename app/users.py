@@ -82,10 +82,20 @@ def update_me():
 @bp.delete('/me')
 @require_auth
 def delete_me():
-    """GDPR Art. 17 — soft-delete with immediate PII anonymisation."""
+    """GDPR Art. 17 — soft-delete with immediate PII anonymisation.
+
+    Accepts an optional `refresh_token` body param; if provided, the token is
+    revoked immediately so the deleted account cannot obtain new access tokens.
+    """
     user = _get_active_user(g.user_id)
     if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
+
+    data = request.get_json(silent=True) or {}
+    refresh_token = data.get('refresh_token')
+    if refresh_token:
+        from .token import revoke_refresh_token
+        revoke_refresh_token(refresh_token)
 
     deletion_at = datetime.now(timezone.utc) + timedelta(days=_DELETION_GRACE_DAYS)
 

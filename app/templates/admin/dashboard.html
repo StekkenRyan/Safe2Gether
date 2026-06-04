@@ -1,0 +1,271 @@
+{% extends "admin/base.html" %}
+{% set active_nav = 'dashboard' %}
+
+{% block title %}Dashboard — Safe2Gether Admin{% endblock %}
+
+{% block head_extra %}
+<meta http-equiv="refresh" content="60">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+  #admin-map { height: 420px; background: #1e293b; }
+  .leaflet-container { background: #0f172a; }
+  /* keep Leaflet popups readable on dark bg */
+  .leaflet-popup-content-wrapper { background: #1e293b; color: #cbd5e1; border: 1px solid #334155; }
+  .leaflet-popup-tip { background: #1e293b; }
+  .leaflet-tooltip { background: #1e293b; color: #94a3b8; border: 1px solid #334155; font-size: 11px; }
+</style>
+{% endblock %}
+
+{% block admin_content %}
+<main class="flex-1 px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full space-y-8">
+
+  <div class="flex items-center justify-between">
+    <h1 class="text-lg font-semibold text-slate-100">Dashboard</h1>
+    <span class="text-xs text-slate-500">{{ now }}</span>
+  </div>
+
+  <!-- ── NUTZER ──────────────────────────────────────────────── -->
+  <section>
+    <h2 class="text-xs font-semibold text-teal-400 uppercase tracking-widest mb-3">Nutzer</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      {% macro metric(label, value) %}
+      <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+        <div class="text-2xl font-bold text-slate-100 tabular-nums">{{ value if value is not none else '—' }}</div>
+        <div class="text-xs text-slate-400 mt-1 leading-snug">{{ label }}</div>
+      </div>
+      {% endmacro %}
+      {{ metric('Gesamt', m.users_total) }}
+      {{ metric('Aktiv (7 Tage)', m.users_active_7d) }}
+      {{ metric('Aktiv (30 Tage)', m.users_active_30d) }}
+      {{ metric('Nearby opt-out', m.users_nearby_optout) }}
+      {{ metric('Kein Push-Token', m.users_no_push) }}
+    </div>
+    <div class="mt-3 bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+      <div class="text-xs font-medium text-slate-400 mb-2">Auth-Provider</div>
+      <table class="text-sm w-full">
+        <thead><tr class="text-xs text-slate-500 text-left">
+          <th class="pb-1.5 font-medium">Provider</th>
+          <th class="pb-1.5 font-medium text-right">Anzahl</th>
+          <th class="pb-1.5 font-medium text-right">Anteil</th>
+        </tr></thead>
+        <tbody>
+          {% for row in m.auth_providers %}
+          <tr class="border-t border-slate-700/40">
+            <td class="py-1.5 text-slate-200 font-mono text-xs">{{ row.provider }}</td>
+            <td class="py-1.5 text-slate-300 text-right tabular-nums">{{ row.count }}</td>
+            <td class="py-1.5 text-slate-500 text-right tabular-nums">{{ '%.1f' % row.pct }}%</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="3" class="py-2 text-slate-600 text-xs">Keine Daten</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── ALARME ──────────────────────────────────────────────── -->
+  <section>
+    <h2 class="text-xs font-semibold text-teal-400 uppercase tracking-widest mb-3">Alarme</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {{ metric('Gesamt', m.alarms_total) }}
+      {{ metric('Heute', m.alarms_today) }}
+      {{ metric('Aktiv', m.alarms_active) }}
+      {{ metric('Ø Responder', m.alarms_avg_responders) }}
+    </div>
+    <div class="mt-3 bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+      <div class="text-xs font-medium text-slate-400 mb-2">Status letzte 30 Tage</div>
+      <table class="text-sm w-full">
+        <thead><tr class="text-xs text-slate-500 text-left">
+          <th class="pb-1.5 font-medium">Status</th>
+          <th class="pb-1.5 font-medium text-right">Anzahl</th>
+        </tr></thead>
+        <tbody>
+          {% for row in m.alarms_by_status %}
+          <tr class="border-t border-slate-700/40">
+            <td class="py-1.5 text-slate-200 font-mono text-xs">{{ row.status }}</td>
+            <td class="py-1.5 text-slate-300 text-right tabular-nums">{{ row.count }}</td>
+          </tr>
+          {% else %}
+          <tr><td colspan="2" class="py-2 text-slate-600 text-xs">Keine Alarme in den letzten 30 Tagen</td></tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── REPUTATION ─────────────────────────────────────────── -->
+  <section>
+    <h2 class="text-xs font-semibold text-teal-400 uppercase tracking-widest mb-3">Reputation</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+        <div class="text-xs font-medium text-slate-400 mb-2">Level-Verteilung</div>
+        <table class="text-sm w-full">
+          <thead><tr class="text-xs text-slate-500 text-left">
+            <th class="pb-1.5 font-medium">Level</th>
+            <th class="pb-1.5 font-medium text-right">Anzahl</th>
+          </tr></thead>
+          <tbody>
+            {% for row in m.reputation_levels %}
+            <tr class="border-t border-slate-700/40">
+              <td class="py-1.5 font-mono text-xs
+                {% if row.level == 'very_low' %}text-red-400
+                {% elif row.level == 'low' %}text-orange-400
+                {% elif row.level == 'high' %}text-teal-400
+                {% elif row.level == 'very_high' %}text-cyan-400
+                {% else %}text-slate-300{% endif %}">{{ row.level }}</td>
+              <td class="py-1.5 text-slate-300 text-right tabular-nums">{{ row.count }}</td>
+            </tr>
+            {% else %}
+            <tr><td colspan="2" class="py-2 text-slate-600 text-xs">Keine Daten</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+        <div class="text-xs font-medium text-slate-400 mb-2">Score-Verteilung</div>
+        <div class="space-y-2 mt-1">
+          {% for label, value in [('Median', m.score_median), ('Minimum', m.score_min), ('Maximum', m.score_max)] %}
+          <div class="flex justify-between text-sm">
+            <span class="text-slate-400 text-xs">{{ label }}</span>
+            <span class="text-slate-200 tabular-nums font-mono text-xs">{{ value if value is not none else '—' }}</span>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ── KONTAKTE ───────────────────────────────────────────── -->
+  <section>
+    <h2 class="text-xs font-semibold text-teal-400 uppercase tracking-widest mb-3">Kontakte</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      {{ metric('Gesamt', m.contacts_total) }}
+      {% for row in m.contacts_by_type %}{{ metric(row.type, row.count) }}{% endfor %}
+      {{ metric('Invite-Tokens (Redis)', m.invite_token_count) }}
+    </div>
+  </section>
+
+  <!-- ── KARTE ──────────────────────────────────────────────── -->
+  <section>
+    <h2 class="text-xs font-semibold text-teal-400 uppercase tracking-widest mb-3">Karte</h2>
+    <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl overflow-hidden">
+      <div class="flex items-center gap-5 px-4 py-2.5 border-b border-slate-700/40 flex-wrap gap-y-2">
+        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+          <input type="checkbox" id="toggle-users" checked
+                 class="accent-teal-400 w-3.5 h-3.5 cursor-pointer">
+          <span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#2dd4bf;opacity:.7"></span>
+          Aktive Nutzer
+        </label>
+        <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer select-none">
+          <input type="checkbox" id="toggle-alarms" checked
+                 class="accent-orange-400 w-3.5 h-3.5 cursor-pointer">
+          <span class="w-2.5 h-2.5 rounded-sm inline-block" style="background:#f97316;opacity:.7"></span>
+          Alarm-Orte
+        </label>
+        <span class="text-xs text-slate-600 ml-auto">≥ 5 Nutzer/Zelle · DSGVO-konform aggregiert</span>
+      </div>
+      <div id="admin-map"></div>
+      <div id="map-empty" class="hidden px-4 py-8 text-center text-xs text-slate-600">
+        Keine Geo-Daten verfügbar (noch kein aktiver Nutzer mit Heartbeat)
+      </div>
+    </div>
+  </section>
+
+  <!-- ── TECHNISCH ──────────────────────────────────────────── -->
+  <section>
+    <details class="group bg-slate-800/50 border border-slate-700/60 rounded-xl">
+      <summary class="flex items-center justify-between px-4 py-3 cursor-pointer select-none">
+        <h2 class="text-xs font-semibold text-teal-400 uppercase tracking-widest">Technisch</h2>
+        <svg class="w-4 h-4 text-slate-500 transition-transform group-open:rotate-180"
+             xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none"
+             stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </summary>
+      <div class="px-4 pb-4 border-t border-slate-700/40 pt-3">
+        <table class="text-sm w-full">
+          <tbody>
+            {% for label, value in [
+              ('Redis', m.redis_status), ('Redis Speicher', m.redis_memory),
+              ('Datenbank', m.db_status), ('Postgres Version', m.pg_version),
+              ('Aktive DB-Verbindungen', m.db_connections),
+              ('Letzter Alarm', m.last_alarm_at), ('Letzter Heartbeat', m.last_heartbeat_at),
+            ] %}
+            <tr class="border-t border-slate-700/40 first:border-0">
+              <td class="py-1.5 text-xs text-slate-400 w-48">{{ label }}</td>
+              <td class="py-1.5 text-xs font-mono
+                {% if value in ('ok', 'pong') %}text-teal-400
+                {% elif value == 'error' %}text-red-400
+                {% else %}text-slate-300{% endif %}">{{ value if value is not none else '—' }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+</main>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/h3-js@4.1.0/dist/h3-js.umd.js"></script>
+<script>
+(function () {
+  const mapEl = document.getElementById('admin-map');
+  const emptyEl = document.getElementById('map-empty');
+
+  const map = L.map(mapEl, { center: [48.5, 10.5], zoom: 5, zoomControl: true });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank">OSM</a> © <a href="https://carto.com/attributions" target="_blank">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 14,
+  }).addTo(map);
+
+  const userLayer = L.layerGroup().addTo(map);
+  const alarmLayer = L.layerGroup().addTo(map);
+  const allBounds = [];
+
+  function hexPolygon(cell, opts) {
+    try {
+      const boundary = h3.cellToBoundary(cell);  // [[lat,lng], ...]
+      boundary.forEach(([lat, lng]) => allBounds.push([lat, lng]));
+      return L.polygon(boundary, opts);
+    } catch (_) { return null; }
+  }
+
+  fetch('/admin/api/geo')
+    .then(r => r.json())
+    .then(data => {
+      const hasData = data.users.length > 0 || data.alarms.length > 0;
+      if (!hasData) { mapEl.style.display = 'none'; emptyEl.classList.remove('hidden'); return; }
+
+      data.users.forEach(({ cell, count }) => {
+        const p = hexPolygon(cell, {
+          color: '#2dd4bf', fillColor: '#2dd4bf', weight: 1, opacity: 0.5,
+          fillOpacity: 0.10 + Math.min(count / 30, 1) * 0.35,
+        });
+        if (p) p.bindTooltip(`${count} aktive Nutzer`).addTo(userLayer);
+      });
+
+      data.alarms.forEach(({ cell, count }) => {
+        const p = hexPolygon(cell, {
+          color: '#f97316', fillColor: '#f97316', weight: 1.5, opacity: 0.8,
+          fillOpacity: 0.20 + Math.min(count / 5, 1) * 0.40,
+        });
+        if (p) p.bindTooltip(`${count} Alarm${count !== 1 ? 'e' : ''}`).addTo(alarmLayer);
+      });
+
+      if (allBounds.length) map.fitBounds(allBounds, { padding: [20, 20], maxZoom: 10 });
+    })
+    .catch(() => { mapEl.style.display = 'none'; emptyEl.classList.remove('hidden'); });
+
+  document.getElementById('toggle-users').addEventListener('change', e => {
+    e.target.checked ? map.addLayer(userLayer) : map.removeLayer(userLayer);
+  });
+  document.getElementById('toggle-alarms').addEventListener('change', e => {
+    e.target.checked ? map.addLayer(alarmLayer) : map.removeLayer(alarmLayer);
+  });
+}());
+</script>
+{% endblock %}

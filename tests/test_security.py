@@ -171,3 +171,122 @@ def test_nearby_alerting_opt_out_field(client, auth_headers):
     # Confirm it persists
     profile = client.get('/api/v1/users/me', headers=auth_headers).get_json()
     assert profile['nearby_alerting_enabled'] is False
+
+
+# ─── Admin security ───────────────────────────────────────────────────────────
+
+def test_admin_empty_password_rejected(client, monkeypatch):
+    """ADMIN_PASSWORD='' must never grant access — empty secrets.compare_digest trap."""
+    monkeypatch.setenv('ADMIN_USERNAME', 'admin')
+    monkeypatch.delenv('ADMIN_PASSWORD', raising=False)
+    resp = client.post('/admin/login', data={'username': 'admin', 'password': ''})
+    assert resp.status_code == 401
+
+
+def test_admin_login_rate_limit(client, monkeypatch, mock_redis):
+    """After 5 failed attempts the login endpoint returns 429."""
+    monkeypatch.setenv('ADMIN_USERNAME', 'admin')
+    monkeypatch.setenv('ADMIN_PASSWORD', 'correct')
+    for _ in range(5):
+        client.post('/admin/login', data={'username': 'admin', 'password': 'wrong'})
+    resp = client.post('/admin/login', data={'username': 'admin', 'password': 'correct'})
+    assert resp.status_code == 429
+
+
+def test_admin_session_timeout(client, monkeypatch):
+    """Sessions older than 8 hours are rejected."""
+    from datetime import datetime, timedelta, timezone
+    monkeypatch.setenv('ADMIN_USERNAME', 'admin')
+    monkeypatch.setenv('ADMIN_PASSWORD', 'pass')
+    client.post('/admin/login', data={'username': 'admin', 'password': 'pass'})
+
+    # Backdate the login timestamp by 9 hours
+    with client.session_transaction() as sess:
+        stale_ts = (datetime.now(timezone.utc) - timedelta(hours=9)).isoformat()
+        sess['admin_login_at'] = stale_ts
+
+    resp = client.get('/admin/')
+    assert resp.status_code == 302
+    assert '/admin/login' in resp.headers['Location']
+
+
+def test_csp_header_present(client):
+    """Content-Security-Policy header must be set on all responses."""
+    resp = client.get('/api/v1/health')
+    assert 'Content-Security-Policy' in resp.headers
+    assert "default-src 'self'" in resp.headers['Content-Security-Policy']
+
+
+def test_session_cookie_samesite(app):
+    """Session cookie must carry SameSite=Strict."""
+    assert app.config.get('SESSION_COOKIE_SAMESITE') == 'Strict'
+    assert app.config.get('SESSION_COOKIE_HTTPONLY') is True
+
+
+# ─── Deleted-user access controls ─────────────────────────────────────────────
+
+def test_deleted_user_cannot_send_heartbeat(client, auth_user, auth_headers):
+    """After deletion, heartbeats must return 404."""
+    client.delete('/api/v1/users/me', headers=auth_headers)
+    resp = client.post('/api/v1/heartbeat', json={'status': 'alive'}, headers=auth_headers)
+    assert resp.status_code == 404
+
+
+def test_deleted_user_cannot_update_device_token(client, auth_user, auth_headers):
+    """After deletion, device-token updates must return 404."""
+    client.delete('/api/v1/users/me', headers=auth_headers)
+    resp = client.put('/api/v1/auth/device-token', json={
+        'device_token': 'a' * 64, 'environment': 'sandbox',
+    }, headers=auth_headers)
+    assert resp.status_code == 404
+
+
+def test_refresh_token_revoked_on_deletion(client, auth_user, mock_redis):
+    """Providing refresh_token on DELETE /me must invalidate it immediately."""
+    from app.token import create_refresh_token, decode_refresh_token
+    user, _ = auth_user
+    refresh_token = create_refresh_token(user.id)
+
+    from app.token import create_access_token
+    access_headers = {'Authorization': f'Bearer {create_access_token(user.id)}'}
+    client.delete('/api/v1/users/me',
+                  json={'refresh_token': refresh_token},
+                  headers=access_headers)
+
+    assert decode_refresh_token(refresh_token) is None
+
+
+# ─── Invite token atomicity ───────────────────────────────────────────────────
+
+def test_invite_token_getdel_single_use(client, make_user, mock_redis):
+    """The second accept of the same token must fail (getdel is atomic)."""
+    _, token_a = make_user(email='inviter@example.com')
+    _, token_b = make_user(email='accepter@example.com')
+
+    invite_resp = client.post('/api/v1/contacts/invite',
+                              headers={'Authorization': f'Bearer {token_a}'})
+    assert invite_resp.status_code == 201
+    invite_token = invite_resp.get_json()['token']
+
+    first = client.post('/api/v1/contacts/accept',
+                        json={'token': invite_token},
+                        headers={'Authorization': f'Bearer {token_b}'})
+    assert first.status_code == 204
+
+    second = client.post('/api/v1/contacts/accept',
+                         json={'token': invite_token},
+                         headers={'Authorization': f'Bearer {token_b}'})
+    assert second.status_code == 404
+
+
+# ─── in_app contact target validation ────────────────────────────────────────
+
+def test_in_app_contact_rejects_nonexistent_user(client, auth_headers):
+    """Creating an in_app contact pointing to a non-existent UUID must fail."""
+    resp = client.post('/api/v1/contacts', json={
+        'contact_type': 'in_app',
+        'contact_value': '00000000-0000-0000-0000-000000000000',
+        'name': 'Ghost',
+    }, headers=auth_headers)
+    assert resp.status_code == 400
+    assert resp.get_json()['code'] == 'INVALID_CONTACT_VALUE'

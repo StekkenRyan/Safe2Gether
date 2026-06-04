@@ -1,0 +1,127 @@
+{% extends "admin/base.html" %}
+{% set active_nav = 'users' %}
+
+{% block title %}Nutzer — Safe2Gether Admin{% endblock %}
+
+{% block admin_content %}
+<main class="flex-1 px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full space-y-6">
+
+  <div class="flex items-center justify-between">
+    <h1 class="text-lg font-semibold text-slate-100">Nutzer</h1>
+  </div>
+
+  <!-- Filter bar -->
+  <form method="get" action="/admin/users"
+        class="flex flex-wrap items-end gap-3 bg-slate-800/50 border border-slate-700/60 rounded-xl p-4">
+    <div>
+      <label class="block text-xs text-slate-500 mb-1">Reputation</label>
+      <select name="level"
+              class="text-sm bg-slate-700/60 border border-slate-600 text-slate-200 rounded-lg
+                     px-3 py-1.5 focus:outline-none focus:border-teal-500/60">
+        <option value="all" {% if level_filter == 'all' %}selected{% endif %}>Alle Level</option>
+        {% for lvl in levels %}
+        <option value="{{ lvl }}" {% if level_filter == lvl %}selected{% endif %}>{{ lvl }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label class="block text-xs text-slate-500 mb-1">Provider</label>
+      <select name="provider"
+              class="text-sm bg-slate-700/60 border border-slate-600 text-slate-200 rounded-lg
+                     px-3 py-1.5 focus:outline-none focus:border-teal-500/60">
+        <option value="all" {% if provider_filter == 'all' %}selected{% endif %}>Alle Provider</option>
+        {% for p in providers %}
+        <option value="{{ p }}" {% if provider_filter == p %}selected{% endif %}>{{ p }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <button type="submit"
+            class="px-4 py-1.5 rounded-lg bg-teal-500/15 border border-teal-500/30 text-teal-300
+                   text-sm hover:bg-teal-500/25 transition-colors focus:outline-none">
+      Filtern
+    </button>
+    {% if level_filter != 'all' or provider_filter != 'all' %}
+    <a href="/admin/users" class="text-xs text-slate-500 hover:text-slate-300 self-center ml-1">
+      Filter zurücksetzen
+    </a>
+    {% endif %}
+  </form>
+
+  <!-- User table -->
+  <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-slate-700/40 flex items-center justify-between">
+      <span class="text-xs text-slate-400">{{ users | length }} Nutzer
+        {% if users | length == 100 %}(Limit: 100 — Filter verfeinern){% endif %}
+      </span>
+      <span class="text-xs text-slate-600">Sortiert nach Score aufsteigend</span>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 text-left border-b border-slate-700/40">
+            <th class="px-4 py-2.5 font-medium">E-Mail / ID</th>
+            <th class="px-4 py-2.5 font-medium">Provider</th>
+            <th class="px-4 py-2.5 font-medium">Level</th>
+            <th class="px-4 py-2.5 font-medium text-right">Score</th>
+            <th class="px-4 py-2.5 font-medium">Status</th>
+            <th class="px-4 py-2.5 font-medium">Dabei seit</th>
+            <th class="px-4 py-2.5 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for user in users %}
+          <tr class="border-t border-slate-700/30 hover:bg-slate-700/20 transition-colors">
+            <td class="px-4 py-2.5">
+              <span class="text-slate-200 text-xs">
+                {{ user.email or '—' }}
+              </span>
+              <div class="text-slate-600 font-mono text-xs mt-0.5">{{ user.id[:8] }}…</div>
+            </td>
+            <td class="px-4 py-2.5">
+              <span class="font-mono text-xs text-slate-400">{{ user.auth_provider }}</span>
+            </td>
+            <td class="px-4 py-2.5">
+              <span class="font-mono text-xs
+                {% if user.reputation_level == 'very_low' %}text-red-400
+                {% elif user.reputation_level == 'low' %}text-orange-400
+                {% elif user.reputation_level == 'high' %}text-teal-400
+                {% elif user.reputation_level == 'very_high' %}text-cyan-400
+                {% else %}text-slate-400{% endif %}">
+                {{ user.reputation_level }}
+              </span>
+            </td>
+            <td class="px-4 py-2.5 text-right tabular-nums text-xs
+              {% if user.reputation_score < 0 %}text-red-400{% else %}text-slate-300{% endif %}">
+              {{ user.reputation_score }}
+            </td>
+            <td class="px-4 py-2.5">
+              {% if user.is_active %}
+              <span class="text-xs text-teal-400">Aktiv</span>
+              {% else %}
+              <span class="text-xs text-red-400">Deaktiviert</span>
+              {% endif %}
+            </td>
+            <td class="px-4 py-2.5 text-xs text-slate-500">
+              {{ user.created_at | dt }}
+            </td>
+            <td class="px-4 py-2.5 text-right">
+              <a href="/admin/users/{{ user.id }}"
+                 class="text-xs text-teal-400/70 hover:text-teal-400 transition-colors">
+                Details →
+              </a>
+            </td>
+          </tr>
+          {% else %}
+          <tr>
+            <td colspan="7" class="px-4 py-8 text-center text-slate-600 text-xs">
+              Keine Nutzer gefunden.
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</main>
+{% endblock %}

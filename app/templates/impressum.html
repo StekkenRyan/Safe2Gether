@@ -1,0 +1,105 @@
+{% extends "base.html" %}
+
+{% block title %}Impressum — Safe2Gether{% endblock %}
+{% block meta_description %}Impressum der Safe2Gether App gemäß § 5 TMG.{% endblock %}
+
+{% block head_extra %}
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }
+  .prose { max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+  .prose h1 { font-size: 1.75rem; font-weight: 700; color: #e0f7ff; margin-bottom: 0.5rem; }
+  .prose .subtitle { font-size: 0.875rem; color: rgba(224,247,255,0.45); margin-bottom: 3rem; }
+  .prose h2 {
+    font-size: 1rem; font-weight: 600; color: #2dd4bf; margin-top: 2.5rem; margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem; border-bottom: 1px solid rgba(45,212,191,0.15);
+  }
+  .prose p, .prose li { font-size: 0.9375rem; color: rgba(224,247,255,0.65); line-height: 1.75; }
+  .prose ul { padding-left: 1.25rem; margin-top: 0.5rem; }
+  .prose li { margin-bottom: 0.25rem; }
+  .prose a { color: #2dd4bf; text-decoration: none; }
+  .prose a:hover { text-decoration: underline; }
+  .placeholder-note {
+    background: rgba(45,212,191,0.06); border: 1px solid rgba(45,212,191,0.2);
+    border-radius: 10px; padding: 0.875rem 1rem; margin: 1rem 0;
+    font-size: 0.8125rem; color: rgba(224,247,255,0.5); font-style: italic;
+  }
+  nav.breadcrumb { font-size: 0.8rem; color: rgba(224,247,255,0.35); margin-bottom: 2rem; }
+  nav.breadcrumb a { color: rgba(224,247,255,0.45); text-decoration: none; }
+  nav.breadcrumb a:hover { color: #2dd4bf; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="prose">
+  <nav class="breadcrumb"><a href="/">← Startseite</a></nav>
+
+  <h1>Impressum</h1>
+  <p class="subtitle">Angaben gemäß § 5 TMG &nbsp;·&nbsp; Version 1.0 (Vorlage — noch nicht rechtsgültig)</p>
+
+  <div class="placeholder-note">
+    Dieses Impressum ist eine Vorlage und muss vor dem öffentlichen Launch mit den
+    vollständigen Angaben des Verantwortlichen befüllt werden.
+  </div>
+
+  <h2>Angaben gemäß § 5 TMG</h2>
+  <p>
+    [Vorname Nachname / Firmenname]<br>
+    [Straße und Hausnummer]<br>
+    [PLZ Ort]<br>
+    [Land]
+  </p>
+
+  <h2>Kontakt</h2>
+  <p>
+    E-Mail: <a href="mailto:kontakt@safe2gether.de">kontakt@safe2gether.de</a><br>
+    [Telefon, sofern vorhanden und gewünscht]
+  </p>
+
+  <h2>Umsatzsteuer-Identifikationsnummer</h2>
+  <p>
+    Sofern vorhanden: USt-IdNr. gemäß § 27a UStG: [DE-Nummer]<br>
+    Sofern nicht vorhanden: [entsprechender Hinweis]
+  </p>
+
+  <h2>Verantwortlich für den Inhalt nach § 18 Abs. 2 MStV</h2>
+  <p>
+    [Vorname Nachname]<br>
+    [Anschrift wie oben]
+  </p>
+
+  <h2>Streitschlichtung</h2>
+  <p>
+    Die Europäische Kommission stellt eine Plattform zur Online-Streitbeilegung (OS) bereit:
+    <a href="https://ec.europa.eu/consumers/odr/" target="_blank" rel="noopener">https://ec.europa.eu/consumers/odr/</a><br>
+    Unsere E-Mail-Adresse finden Sie oben im Impressum.
+  </p>
+  <p>
+    Wir sind nicht bereit oder verpflichtet, an Streitbeilegungsverfahren vor einer
+    Verbraucherschlichtungsstelle teilzunehmen.
+  </p>
+
+  <h2>Haftung für Inhalte</h2>
+  <p>
+    Als Diensteanbieter sind wir gemäß § 7 Abs. 1 TMG für eigene Inhalte auf diesen Seiten
+    nach den allgemeinen Gesetzen verantwortlich. Nach §§ 8 bis 10 TMG sind wir als
+    Diensteanbieter jedoch nicht verpflichtet, übermittelte oder gespeicherte fremde
+    Informationen zu überwachen oder nach Umständen zu forschen, die auf eine rechtswidrige
+    Tätigkeit hinweisen.
+  </p>
+
+  <h2>Haftung für Links</h2>
+  <p>
+    Unser Angebot enthält Links zu externen Websites Dritter, auf deren Inhalte wir keinen
+    Einfluss haben. Deshalb können wir für diese fremden Inhalte auch keine Gewähr übernehmen.
+    Für die Inhalte der verlinkten Seiten ist stets der jeweilige Anbieter oder Betreiber
+    der Seiten verantwortlich.
+  </p>
+
+  <h2>Urheberrecht</h2>
+  <p>
+    Die durch die Seitenbetreiber erstellten Inhalte und Werke auf diesen Seiten unterliegen
+    dem deutschen Urheberrecht. Der Quellcode des Servers steht unter der AGPL v3 Lizenz
+    und ist auf <a href="https://github.com/StekkenRyan" target="_blank" rel="noopener">GitHub</a> verfügbar.
+  </p>
+</div>
+{% endblock %}

@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Datenschutzerklärung — Safe2Gether{% endblock %}
+{% block meta_description %}Datenschutzerklärung der Safe2Gether App gemäß DSGVO.{% endblock %}
+
+{% block head_extra %}
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; }
+  .prose { max-width: 720px; margin: 0 auto; padding: 3rem 1.5rem 5rem; }
+  .prose h1 { font-size: 1.75rem; font-weight: 700; color: #e0f7ff; margin-bottom: 0.5rem; }
+  .prose .subtitle { font-size: 0.875rem; color: rgba(224,247,255,0.45); margin-bottom: 3rem; }
+  .prose h2 {
+    font-size: 1rem; font-weight: 600; color: #2dd4bf; margin-top: 2.5rem; margin-bottom: 0.75rem;
+    padding-bottom: 0.4rem; border-bottom: 1px solid rgba(45,212,191,0.15);
+  }
+  .prose p, .prose li { font-size: 0.9375rem; color: rgba(224,247,255,0.65); line-height: 1.75; }
+  .prose ul { padding-left: 1.25rem; margin-top: 0.5rem; }
+  .prose li { margin-bottom: 0.25rem; }
+  .prose a { color: #2dd4bf; text-decoration: none; }
+  .prose a:hover { text-decoration: underline; }
+  .placeholder-note {
+    background: rgba(45,212,191,0.06); border: 1px solid rgba(45,212,191,0.2);
+    border-radius: 10px; padding: 0.875rem 1rem; margin: 1rem 0;
+    font-size: 0.8125rem; color: rgba(224,247,255,0.5); font-style: italic;
+  }
+  nav.breadcrumb { font-size: 0.8rem; color: rgba(224,247,255,0.35); margin-bottom: 2rem; }
+  nav.breadcrumb a { color: rgba(224,247,255,0.45); text-decoration: none; }
+  nav.breadcrumb a:hover { color: #2dd4bf; }
+</style>
+{% endblock %}
+
+{% block body %}
+<div class="prose">
+  <nav class="breadcrumb"><a href="/">← Startseite</a></nav>
+
+  <h1>Datenschutzerklärung</h1>
+  <p class="subtitle">Stand: {{ date }} &nbsp;·&nbsp; Version 1.0 (Vorlage — noch nicht rechtsgültig)</p>
+
+  <div class="placeholder-note">
+    Diese Datenschutzerklärung ist eine Strukturvorlage. Sie muss vor dem öffentlichen Launch
+    von einem Rechtsanwalt geprüft und auf die tatsächlich verarbeiteten Daten angepasst werden.
+  </div>
+
+  <h2>1. Verantwortlicher</h2>
+  <p>[Name, Anschrift, E-Mail-Adresse des Verantwortlichen gemäß Art. 13 Abs. 1 lit. a DSGVO]</p>
+
+  <h2>2. Kontakt Datenschutzbeauftragter</h2>
+  <p>
+    Sofern gesetzlich erforderlich: [Name und Kontaktdaten des Datenschutzbeauftragten].<br>
+    Anfragen zum Datenschutz richten Sie bitte an: <a href="mailto:datenschutz@safe2gether.de">datenschutz@safe2gether.de</a>
+  </p>
+
+  <h2>3. Erhobene Daten und Zwecke</h2>
+  <p>Wir verarbeiten folgende Kategorien personenbezogener Daten:</p>
+  <ul>
+    <li><strong>Kontodaten:</strong> E-Mail-Adresse oder Apple-ID (Authentifizierung)</li>
+    <li><strong>Standortdaten:</strong> Geohash (grobgranularer Standort) für Nearby Alerting — kein GPS-Dauerbetrieb</li>
+    <li><strong>Alarmhistorie:</strong> Auslösezeitpunkt, Status — automatische Löschung nach 30 Tagen (Art. 5 Abs. 1 lit. e DSGVO)</li>
+    <li><strong>Push-Token:</strong> APNs Device Token für Benachrichtigungen</li>
+    <li><strong>Notfallkontakte:</strong> Werden verschlüsselt auf dem Gerät gespeichert — kein zentrales Adressbuch auf dem Server</li>
+  </ul>
+
+  <h2>4. Rechtsgrundlagen</h2>
+  <ul>
+    <li><strong>Art. 6 Abs. 1 lit. b DSGVO</strong> — Vertragserfüllung (Kernfunktionen der App)</li>
+    <li><strong>Art. 6 Abs. 1 lit. a DSGVO</strong> — Einwilligung (Nearby Alerting, opt-in)</li>
+    <li><strong>Art. 6 Abs. 1 lit. c DSGVO</strong> — Rechtliche Verpflichtung (soweit anwendbar)</li>
+  </ul>
+
+  <h2>5. Speicherdauer</h2>
+  <p>
+    Alarmhistorie und Reputationsdaten werden automatisch nach 30 Tagen gelöscht.
+    Kontodaten werden bei Kündigung nach [X Tagen] gelöscht (Art. 17 DSGVO).
+    Heartbeat-Daten in Redis verfallen automatisch nach 10 Minuten.
+  </p>
+
+  <h2>6. Weitergabe an Dritte</h2>
+  <p>
+    Daten werden nicht an Dritte verkauft. Folgende Dienste werden genutzt:
+  </p>
+  <ul>
+    <li><strong>Apple Push Notification Service (APNs):</strong> Für Push-Benachrichtigungen (Apple Inc., USA) — Datenübertragung auf Basis von Standardvertragsklauseln</li>
+    <li><strong>Hosting:</strong> [Hosting-Anbieter, Serverstandort]</li>
+  </ul>
+
+  <h2>7. Betroffenenrechte</h2>
+  <p>Sie haben folgende Rechte gemäß DSGVO:</p>
+  <ul>
+    <li>Auskunft (Art. 15) · Berichtigung (Art. 16) · Löschung (Art. 17)</li>
+    <li>Einschränkung der Verarbeitung (Art. 18) · Datenübertragbarkeit (Art. 20)</li>
+    <li>Widerspruch (Art. 21) · Widerruf der Einwilligung (Art. 7 Abs. 3)</li>
+  </ul>
+  <p>Kontakt: <a href="mailto:datenschutz@safe2gether.de">datenschutz@safe2gether.de</a></p>
+
+  <h2>8. Beschwerderecht</h2>
+  <p>
+    Sie haben das Recht, sich bei einer Datenschutz-Aufsichtsbehörde zu beschweren,
+    insbesondere in dem EU-Mitgliedstaat Ihres gewöhnlichen Aufenthaltsorts.
+  </p>
+
+  <h2>9. Änderungen dieser Erklärung</h2>
+  <p>
+    Wir behalten uns vor, diese Datenschutzerklärung bei Änderungen der App oder gesetzlicher
+    Anforderungen anzupassen. Die jeweils aktuelle Version ist in der App abrufbar.
+  </p>
+</div>
+{% endblock %}
