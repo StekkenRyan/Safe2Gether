@@ -18,11 +18,6 @@
   .prose li { margin-bottom: 0.25rem; }
   .prose a { color: #2dd4bf; text-decoration: none; }
   .prose a:hover { text-decoration: underline; }
-  .placeholder-note {
-    background: rgba(45,212,191,0.06); border: 1px solid rgba(45,212,191,0.2);
-    border-radius: 10px; padding: 0.875rem 1rem; margin: 1rem 0;
-    font-size: 0.8125rem; color: rgba(224,247,255,0.5); font-style: italic;
-  }
   nav.breadcrumb { font-size: 0.8rem; color: rgba(224,247,255,0.35); margin-bottom: 2rem; }
   nav.breadcrumb a { color: rgba(224,247,255,0.45); text-decoration: none; }
   nav.breadcrumb a:hover { color: #2dd4bf; }
@@ -34,20 +29,17 @@
   <nav class="breadcrumb"><a href="/">← Startseite</a></nav>
 
   <h1>Datenschutzerklärung</h1>
-  <p class="subtitle">Stand: {{ date }} &nbsp;·&nbsp; Version 1.0 (Vorlage — noch nicht rechtsgültig)</p>
-
-  <div class="placeholder-note">
-    Diese Datenschutzerklärung ist eine Strukturvorlage. Sie muss vor dem öffentlichen Launch
-    von einem Rechtsanwalt geprüft und auf die tatsächlich verarbeiteten Daten angepasst werden.
-  </div>
+  <p class="subtitle">Stand: {{ date }}</p>
 
   <h2>1. Verantwortlicher</h2>
-  <p>[Name, Anschrift, E-Mail-Adresse des Verantwortlichen gemäß Art. 13 Abs. 1 lit. a DSGVO]</p>
-
-  <h2>2. Kontakt Datenschutzbeauftragter</h2>
   <p>
-    Sofern gesetzlich erforderlich: [Name und Kontaktdaten des Datenschutzbeauftragten].<br>
-    Anfragen zum Datenschutz richten Sie bitte an: <a href="mailto:datenschutz@safe2gether.de">datenschutz@safe2gether.de</a>
+    Paul Czymek<br>
+    E-Mail: <a href="mailto:kontakt@safe2gether.de">kontakt@safe2gether.de</a>
+  </p>
+
+  <h2>2. Datenschutzkontakt</h2>
+  <p>
+    Anfragen zum Datenschutz richten Sie bitte an: <a href="mailto:kontakt@safe2gether.de">kontakt@safe2gether.de</a>
   </p>
 
   <h2>3. Erhobene Daten und Zwecke</h2>
@@ -70,7 +62,7 @@
   <h2>5. Speicherdauer</h2>
   <p>
     Alarmhistorie und Reputationsdaten werden automatisch nach 30 Tagen gelöscht.
-    Kontodaten werden bei Kündigung nach [X Tagen] gelöscht (Art. 17 DSGVO).
+    Kontodaten werden bei Kündigung nach 30 Tagen gelöscht (Art. 17 DSGVO).
     Heartbeat-Daten in Redis verfallen automatisch nach 10 Minuten.
   </p>
 
@@ -80,7 +72,7 @@
   </p>
   <ul>
     <li><strong>Apple Push Notification Service (APNs):</strong> Für Push-Benachrichtigungen (Apple Inc., USA) — Datenübertragung auf Basis von Standardvertragsklauseln</li>
-    <li><strong>Hosting:</strong> [Hosting-Anbieter, Serverstandort]</li>
+    <li><strong>Hosting:</strong> Eigener Server (Deutschland)</li>
   </ul>
 
   <h2>7. Betroffenenrechte</h2>
@@ -90,7 +82,7 @@
     <li>Einschränkung der Verarbeitung (Art. 18) · Datenübertragbarkeit (Art. 20)</li>
     <li>Widerspruch (Art. 21) · Widerruf der Einwilligung (Art. 7 Abs. 3)</li>
   </ul>
-  <p>Kontakt: <a href="mailto:datenschutz@safe2gether.de">datenschutz@safe2gether.de</a></p>
+  <p>Kontakt: <a href="mailto:kontakt@safe2gether.de">kontakt@safe2gether.de</a></p>
 
   <h2>8. Beschwerderecht</h2>
   <p>

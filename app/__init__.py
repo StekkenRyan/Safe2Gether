@@ -2,9 +2,12 @@ import os
 
 from dotenv import load_dotenv
 from flask import Flask
+from flask_mail import Mail
 from flask_migrate import Migrate
 
 from .db import db
+
+mail = Mail()
 
 load_dotenv()
 
@@ -32,6 +35,16 @@ def create_app(test_config: dict | None = None) -> Flask:
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
     app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-in-production')
 
+    app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp-relay.brevo.com')
+    app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+    app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'true').lower() == 'true'
+    app.config['MAIL_USE_SSL'] = os.environ.get('MAIL_USE_SSL', 'false').lower() == 'true'
+    app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME')
+    app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD')
+    app.config['MAIL_DEFAULT_SENDER'] = os.environ.get(
+        'MAIL_DEFAULT_SENDER', 'kontakt@safe2gether.de'
+    )
+
     # Session cookie hardening: SameSite=Strict prevents CSRF on admin POST routes.
     # Secure is only set outside of testing (tests run over plain HTTP).
     app.config['SESSION_COOKIE_SAMESITE'] = 'Strict'
@@ -47,6 +60,7 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     db.init_app(app)
     Migrate(app, db)
+    mail.init_app(app)
 
     # CSP allows the CDN assets used by admin/landing templates while blocking
     # exfiltration to unknown origins. 'unsafe-inline' for scripts is required

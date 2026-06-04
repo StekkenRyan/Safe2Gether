@@ -11,9 +11,9 @@ Er ist die Grundlage für die öffentliche Datenschutzerklärung, die **vor dem 
 
 | Feld | Wert |
 |------|------|
-| Name | *TBD — Einzelperson oder UG/GmbH* |
-| Adresse | *TBD* |
-| E-Mail | *TBD (datenschutz@safe2gether.de empfohlen)* |
+| Name | Paul Czymek |
+| Adresse | *wird nachgetragen* |
+| E-Mail | kontakt@safe2gether.de |
 | Vertreter EU | entfällt (DE-ansässig) |
 
 ---
@@ -131,7 +131,7 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 | Widerspruch | Art. 21 | Opt-out Nearby Alerting in App-Einstellungen |
 | Beschwerde | Art. 77 | Zuständige Aufsichtsbehörde: LfDI Baden-Württemberg (vorläufig) |
 
-**Antwortfrist**: 30 Tage (DSGVO-Pflicht). Kontakt: *TBD (datenschutz@safe2gether.de)*
+**Antwortfrist**: 30 Tage (DSGVO-Pflicht). Kontakt: *TBD (kontakt@safe2gether.de)*
 
 ---
 
@@ -153,7 +153,7 @@ Redis-Daten sind flüchtig — kein Backup, kein persistentes Log.
 
 Diese Punkte **müssen** vor dem App-Store-Launch geklärt und implementiert sein:
 
-- [ ] **Verantwortlichen** festlegen (Einzelperson / UG) und in Datenschutzerklärung eintragen
+- [x] **Verantwortlichen** festlegen (Paul Czymek) und in Datenschutzerklärung eintragen
 - [ ] **SMS-Provider** wählen (Twilio, Vonage, etc.) → Auftragsverarbeitungsvertrag (AVV) abschließen
 - [ ] **Cloudflare AVV** abschließen (kostenlos im Dashboard verfügbar)
 - [ ] **Apple / Google** AVV prüfen (i.d.R. in Developer Agreement enthalten)
