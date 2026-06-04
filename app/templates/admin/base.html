@@ -19,9 +19,22 @@
         </a>
       </nav>
     </div>
-    <a href="/admin/logout" class="text-xs text-slate-600 hover:text-slate-400 transition-colors">
-      Abmelden
-    </a>
+    <div class="flex items-center gap-3">
+      <span class="px-2 py-0.5 rounded text-xs font-mono font-semibold
+        {{ 'bg-amber-500/20 text-amber-400 border border-amber-500/30' if env == 'dev'
+           else 'bg-teal-500/20 text-teal-400 border border-teal-500/30' }}">
+        {{ env_cfg.label }}
+      </span>
+      <a href="{{ env_cfg.link }}"
+         class="text-xs text-slate-600 hover:text-slate-400 transition-colors"
+         title="Zu {{ env_cfg.link_label }} wechseln">
+        {{ env_cfg.link_label }}
+      </a>
+      <span class="text-slate-700">·</span>
+      <a href="/admin/logout" class="text-xs text-slate-600 hover:text-slate-400 transition-colors">
+        Abmelden
+      </a>
+    </div>
   </header>
 
   {% block admin_content %}{% endblock %}

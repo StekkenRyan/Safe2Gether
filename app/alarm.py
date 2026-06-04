@@ -35,6 +35,8 @@ bp = Blueprint('alarms', __name__, url_prefix='/api/v1/alarms')
 _ALARM_RATE_LIMIT_SECS = 60   # max 1 alarm per user per minute
 
 _VALID_STAGES = ('device_local', 'contacts', 'community', 'contacts+community')
+_VALID_ALERT_TYPES = ('panic', 'need_help', 'car_breakdown', 'cant_get_home')
+_VALID_AUDIENCES = ('contacts', 'community', 'contacts_and_community')
 
 _REP_RESPONDED = 10          # pressed "Ich helfe"
 _REP_RESPONSE_VERIFIED = 5   # alarm resolved → responder's effort confirmed
@@ -181,6 +183,7 @@ def _notify_community(alarm: Alarm, user: User) -> None:
             bearing_degrees=bearing,
             distance_meters=distance_m,
             responder_count=0,
+            alert_type=alarm.alert_type,
         )
 
 
@@ -207,6 +210,20 @@ def _user_stages(user: User) -> list[str]:
     return [s for s in raw if s in _VALID_STAGES]
 
 
+def _stages_for_audience(base_stages: list[str], audience: str) -> list[str]:
+    """Filter escalation stages to match the requested audience.
+
+    When a specific audience is chosen the user's full escalation chain is
+    overridden: only the stages relevant to that audience are kept.
+    contacts_and_community uses the chain as-is.
+    """
+    if audience == 'contacts':
+        return [s for s in base_stages if s not in ('community',)]
+    if audience == 'community':
+        return [s for s in base_stages if s not in ('contacts',)]
+    return base_stages
+
+
 # ─── Create alarm ─────────────────────────────────────────────────────────────
 
 @bp.post('')
@@ -219,6 +236,16 @@ def trigger_alarm():
     if trigger_source not in valid_sources:
         return jsonify({'error': 'Bad Request', 'code': 'INVALID_TRIGGER_SOURCE',
                         'detail': f'trigger_source must be one of {valid_sources}'}), 400
+
+    alert_type = data.get('alert_type', 'panic')
+    if alert_type not in _VALID_ALERT_TYPES:
+        return jsonify({'error': 'Bad Request', 'code': 'INVALID_ALERT_TYPE',
+                        'detail': f'alert_type must be one of {_VALID_ALERT_TYPES}'}), 400
+
+    audience = data.get('audience', 'contacts_and_community')
+    if audience not in _VALID_AUDIENCES:
+        return jsonify({'error': 'Bad Request', 'code': 'INVALID_AUDIENCE',
+                        'detail': f'audience must be one of {_VALID_AUDIENCES}'}), 400
 
     user = db.session.get(User, g.user_id)
     if not user or not user.is_active:
@@ -238,13 +265,19 @@ def trigger_alarm():
 
     alarm_id = str(uuid.uuid4())  # Always server-generated — no client-provided IDs
 
-    stages = _user_stages(user) or ['device_local', 'contacts', 'community']
+    base_stages = _user_stages(user) or ['device_local', 'contacts', 'community']
+    stages = _stages_for_audience(base_stages, audience)
+    # Guarantee at least device_local so the alarm always has a valid first stage
+    if not stages:
+        stages = ['device_local']
     delay = user.escalation_delay_seconds
 
     alarm = Alarm(
         id=alarm_id,
         user_id=g.user_id,
         trigger_source=trigger_source,
+        alert_type=alert_type,
+        audience=audience,
         status='active',
         escalation_stage=stages[0],
         geohash_snapshot=geohash,

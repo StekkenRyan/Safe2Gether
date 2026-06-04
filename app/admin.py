@@ -22,6 +22,17 @@ bp = Blueprint('admin', __name__, url_prefix='/admin')
 
 _ENV = os.environ.get('ENV', 'dev')
 
+_ENV_CONFIG = {
+    'prod': {'label': 'PROD', 'link_label': '→ DEV', 'link': 'https://dev.safe2gether.de/admin/'},
+    'dev':  {'label': 'DEV',  'link_label': '→ PROD', 'link': 'https://api.safe2gether.de/admin/'},
+}
+
+
+@bp.context_processor
+def inject_env() -> dict:
+    cfg = _ENV_CONFIG.get(_ENV, _ENV_CONFIG['dev'])
+    return {'env': _ENV, 'env_cfg': cfg}
+
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
 

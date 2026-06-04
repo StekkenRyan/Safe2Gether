@@ -114,8 +114,14 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .escalation import bp as escalation_bp
     app.register_blueprint(escalation_bp)
 
+    from .safety_timer import bp as safety_timer_bp
+    app.register_blueprint(safety_timer_bp)
+
     from .escalation_worker import start_worker
     start_worker(app)
+
+    from .timer_worker import start_worker as start_timer_worker
+    start_timer_worker(app)
 
     @app.template_filter('dt')
     def _dt_filter(value, fmt: str = '%d.%m.%Y') -> str:

@@ -35,6 +35,9 @@ EVENT_RESPONDER_ADDED = 'responder_added'
 EVENT_ALARM_RESOLVED = 'alarm_resolved'
 EVENT_ALARM_FALSE_ALARM = 'alarm_false_alarm'
 
+# Dead Man's Switch
+EVENT_TIMER_CHECKIN_REQUEST = 'timer_checkin_request'
+
 
 def _apns_host() -> str:
     sandbox = os.environ.get('APNS_SANDBOX', 'true').lower() == 'true'
@@ -98,6 +101,14 @@ def _send_apns(device_token: str, payload: dict, environment: str = 'sandbox') -
         logger.exception('APNs send failed for token %s', device_token[:8] + '...')
 
 
+_ALERT_TYPE_TITLES = {
+    'panic': 'Notruf in deiner Nähe',
+    'need_help': 'Jemand braucht Hilfe in deiner Nähe',
+    'car_breakdown': 'Auto liegengeblieben in deiner Nähe',
+    'cant_get_home': 'Jemand kommt nicht nach Hause — in deiner Nähe',
+}
+
+
 def send_nearby_alert(
     device_token: str,
     environment: str,
@@ -106,17 +117,19 @@ def send_nearby_alert(
     bearing_degrees: float,
     distance_meters: int,
     responder_count: int = 0,
+    alert_type: str = 'panic',
 ) -> None:
     """Non-blocking: notify a nearby user that an alarm was triggered.
 
     Sets `aps.category = NEARBY_ALERT` so iOS attaches the registered
     "Ich helfe" / "Ablehnen" action buttons to the banner.
     """
+    title = _ALERT_TYPE_TITLES.get(alert_type, _ALERT_TYPE_TITLES['panic'])
     body = f'{_distance_label(distance_meters)} · {_compass_label(bearing_degrees)}'
     payload = {
         'aps': {
             'alert': {
-                'title': 'Hilferuf in deiner Nähe',
+                'title': title,
                 'body': body,
             },
             'sound': 'default',
@@ -125,10 +138,37 @@ def send_nearby_alert(
         },
         'type': 'nearby_alert',
         'alarm_id': alarm_id,
+        'alert_type': alert_type,
         'triggered_at': triggered_at_iso,
         'bearing_degrees': bearing_degrees,
         'distance_meters': distance_meters,
         'responder_count': responder_count,
+    }
+    threading.Thread(
+        target=_send_apns, args=(device_token, payload, environment), daemon=True
+    ).start()
+
+
+def send_timer_checkin_request(
+    device_token: str,
+    environment: str,
+    timer_id: str,
+    note: str | None = None,
+) -> None:
+    """Non-blocking: ask the timer owner to check in (Dead Man's Switch)."""
+    body = note or 'Bitte melde dich — dein Sicherheits-Timer läuft ab.'
+    payload = {
+        'aps': {
+            'alert': {
+                'title': 'Bist du okay?',
+                'body': body,
+            },
+            'sound': 'default',
+            'badge': 1,
+        },
+        'type': 'timer_checkin_request',
+        'timer_id': timer_id,
+        'event': EVENT_TIMER_CHECKIN_REQUEST,
     }
     threading.Thread(
         target=_send_apns, args=(device_token, payload, environment), daemon=True

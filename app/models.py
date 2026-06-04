@@ -163,6 +163,14 @@ class Alarm(db.Model):
     )
     triggered_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now())
     trigger_source = db.Column(db.String(30), nullable=False)
+    alert_type = db.Column(
+        db.String(30), nullable=False, default='panic', server_default='panic'
+    )
+    # contacts | community | contacts_and_community — overrides escalation chain when set
+    audience = db.Column(
+        db.String(30), nullable=False,
+        default='contacts_and_community', server_default='contacts_and_community',
+    )
     status = db.Column(db.String(20), nullable=False, default='active', server_default='active')
     escalation_stage = db.Column(db.String(20), nullable=False, default='device_local')
     geohash_snapshot = db.Column(db.String(20), nullable=True)
@@ -186,6 +194,8 @@ class Alarm(db.Model):
             'user_id': self.user_id,
             'triggered_at': self.triggered_at.isoformat() + 'Z' if self.triggered_at else None,
             'trigger_source': self.trigger_source,
+            'alert_type': self.alert_type,
+            'audience': self.audience,
             'status': self.status,
             'escalation_stage': self.escalation_stage,
             'geohash_snapshot': self.geohash_snapshot,
@@ -214,3 +224,42 @@ class AlarmResponder(db.Model):
     responded_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now())
 
     alarm = db.relationship('Alarm', back_populates='responders')
+
+
+class SafetyTimer(db.Model):
+    """Dead Man's Switch timer. Escalates to contacts (and optionally community)
+    if the owner does not check in before expires_at + GRACE_PERIOD_SECONDS."""
+    __tablename__ = 'safety_timers'
+
+    GRACE_PERIOD_SECONDS = 300  # 5 minutes to respond after expiry before contacts are notified
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(
+        db.String(36), db.ForeignKey('users.id', ondelete='CASCADE'),
+        nullable=False, index=True,
+    )
+    duration_seconds = db.Column(db.Integer, nullable=False)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    # active | checkin_requested | triggered | cancelled | checked_in
+    status = db.Column(db.String(30), nullable=False, default='active', server_default='active')
+    # Comma-separated user IDs to notify when timer triggers (in_app contacts)
+    notify_contact_ids = db.Column(db.Text, nullable=True)
+    notify_community = db.Column(
+        db.Boolean, nullable=False, default=False, server_default='false'
+    )
+    note = db.Column(db.String(200), nullable=True)
+    checkin_requested_at = db.Column(db.DateTime, nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now())
+
+    def to_dict(self) -> dict:
+        return {
+            'id': self.id,
+            'user_id': self.user_id,
+            'duration_seconds': self.duration_seconds,
+            'expires_at': self.expires_at.isoformat() + 'Z' if self.expires_at else None,
+            'status': self.status,
+            'notify_contact_ids': [c for c in (self.notify_contact_ids or '').split(',') if c],
+            'notify_community': self.notify_community,
+            'note': self.note,
+            'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
+        }
