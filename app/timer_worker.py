@@ -53,7 +53,7 @@ def _step_checkin_request(now: datetime) -> None:
             logger.info(
                 'timer_no_device_token user=%s timer=%s '
                 '— marking triggered', timer.user_id, timer.id
-            )            
+            )
             db.session.commit()
             continue
 
