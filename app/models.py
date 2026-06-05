@@ -236,6 +236,18 @@ class AlarmResponder(db.Model):
     alarm = db.relationship('Alarm', back_populates='responders')
 
 
+class PasswordReset(db.Model):
+    __tablename__ = 'password_resets'
+
+    id = db.Column(db.String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = db.Column(
+        db.String(36), db.ForeignKey('users.id', ondelete='CASCADE'), nullable=False, index=True
+    )
+    token_hash = db.Column(db.Text, nullable=False, unique=True)
+    expires_at = db.Column(db.DateTime, nullable=False)
+    used_at = db.Column(db.DateTime, nullable=True)
+
+
 class SafetyTimer(db.Model):
     """Dead Man's Switch timer. Escalates to contacts (and optionally community)
     if the owner does not check in before expires_at + GRACE_PERIOD_SECONDS."""

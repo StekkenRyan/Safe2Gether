@@ -3,20 +3,25 @@
 Single sign-in endpoint for all three providers (Apple / Google / Email).
 First call creates the account; subsequent calls return the existing one.
 """
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
+from datetime import datetime, timedelta
 
 import bcrypt
 import httpx
 import jwt as pyjwt
 import redis as redis_lib
-from flask import Blueprint, g, jsonify, request
+from flask import Blueprint, g, jsonify, render_template, request
+from flask_mail import Message
 from jwt.algorithms import RSAAlgorithm
 
+from . import mail
 from .db import db
-from .models import User
+from .models import PasswordReset, User
 from .redis_keys import JWKS_APPLE, JWKS_GOOGLE
 from .token import (
     ACCESS_TTL,
@@ -263,3 +268,73 @@ def verify_phone():
         'error': 'Not Implemented', 'code': 'NOT_IMPLEMENTED',
         'detail': 'Phone verification will be available once an SMS provider is configured.',
     }), 501
+
+
+# ── Password Reset ─────────────────────────────────────────────────────────────
+
+_RESET_TOKEN_TTL_HOURS = 24
+
+
+def _send_password_reset_email(to_email: str, reset_link: str) -> None:
+    subject = 'Dein Safe2Gether Passwort zurücksetzen'
+    html_body = render_template('email/password_reset.html', reset_link=reset_link)
+    msg = Message(subject=subject, recipients=[to_email], html=html_body)
+    try:
+        mail.send(msg)
+    except Exception:
+        logger.exception('Failed to send password reset email to %s', to_email)
+
+
+@bp.post('/password-reset/request')
+def password_reset_request():
+    data = request.get_json(silent=True) or {}
+    email = (data.get('email') or '').lower().strip()
+
+    user = User.query.filter_by(email=email, auth_provider='email').first()
+    if user and user.is_active:
+        # Invalidate any existing open tokens for this user
+        now = datetime.utcnow()
+        PasswordReset.query.filter_by(user_id=user.id).filter(
+            PasswordReset.used_at.is_(None)
+        ).update({'used_at': now})
+
+        token = secrets.token_hex(32)
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        reset = PasswordReset(
+            user_id=user.id,
+            token_hash=token_hash,
+            expires_at=now + timedelta(hours=_RESET_TOKEN_TTL_HOURS),
+        )
+        db.session.add(reset)
+        db.session.commit()
+
+        reset_link = f'safe2gether://reset-password?token={token}'
+        _send_password_reset_email(user.email, reset_link)
+
+    # Always 204 — never reveal whether the email exists
+    return '', 204
+
+
+@bp.post('/password-reset/confirm')
+def password_reset_confirm():
+    data = request.get_json(silent=True) or {}
+    token = data.get('token') or ''
+    new_password = data.get('new_password') or ''
+
+    if len(new_password) < 8:
+        return jsonify({'error': 'new_password muss mindestens 8 Zeichen lang sein'}), 400
+
+    token_hash = hashlib.sha256(token.encode()).hexdigest()
+    reset = PasswordReset.query.filter_by(token_hash=token_hash).first()
+
+    now = datetime.utcnow()
+    if reset is None or reset.used_at is not None or reset.expires_at < now:
+        return jsonify({'error': 'Token ungültig oder abgelaufen'}), 400
+
+    reset.used_at = now
+
+    user = db.session.get(User, reset.user_id)
+    user.password_hash = bcrypt.hashpw(new_password.encode(), bcrypt.gensalt()).decode()
+    db.session.commit()
+
+    return '', 204
