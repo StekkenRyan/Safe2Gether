@@ -37,6 +37,7 @@ _ALARM_RATE_LIMIT_SECS = 60   # max 1 alarm per user per minute
 _VALID_STAGES = ('device_local', 'contacts', 'community', 'contacts+community')
 _VALID_ALERT_TYPES = ('panic', 'need_help', 'car_breakdown', 'cant_get_home')
 _VALID_AUDIENCES = ('contacts', 'community', 'contacts_and_community')
+_VALID_HOME_DISTANCES = ('under_1km', '1_5km', '5_15km', 'over_15km')
 
 _REP_RESPONDED = 10          # pressed "Ich helfe"
 _REP_RESPONSE_VERIFIED = 5   # alarm resolved → responder's effort confirmed
@@ -149,7 +150,7 @@ def _notify_contacts(alarm: Alarm, user: User) -> None:
         )
 
 
-def _notify_community(alarm: Alarm, user: User) -> None:
+def _notify_community(alarm: Alarm, user: User, home_distance_category: str | None = None) -> None:
     """Push notification to every Nearby-Alerting-enabled user in the H3 k-ring
     around the alarm's geohash_snapshot. Uses the snapshot deliberately —
     nearby users near the *original* panic site should be alerted even if the
@@ -184,6 +185,7 @@ def _notify_community(alarm: Alarm, user: User) -> None:
             distance_meters=distance_m,
             responder_count=0,
             alert_type=alarm.alert_type,
+            home_distance_category=home_distance_category,
         )
 
 
@@ -193,13 +195,14 @@ def run_stage(alarm: Alarm, user: User, stage: str) -> None:
     """
     if stage == 'device_local':
         return
+    hdc = alarm.home_distance_category
     if stage == 'contacts':
         _notify_contacts(alarm, user)
     elif stage == 'community':
-        _notify_community(alarm, user)
+        _notify_community(alarm, user, home_distance_category=hdc)
     elif stage == 'contacts+community':
         _notify_contacts(alarm, user)
-        _notify_community(alarm, user)
+        _notify_community(alarm, user, home_distance_category=hdc)
     else:
         logger.warning('unknown escalation stage %r on alarm %s', stage, alarm.id)
 
@@ -247,6 +250,11 @@ def trigger_alarm():
         return jsonify({'error': 'Bad Request', 'code': 'INVALID_AUDIENCE',
                         'detail': f'audience must be one of {_VALID_AUDIENCES}'}), 400
 
+    home_distance_category = data.get('home_distance_category') or None
+    if home_distance_category and home_distance_category not in _VALID_HOME_DISTANCES:
+        return jsonify({'error': 'Bad Request', 'code': 'INVALID_HOME_DISTANCE_CATEGORY',
+                        'detail': f'home_distance_category must be one of {_VALID_HOME_DISTANCES}'}), 400
+
     user = db.session.get(User, g.user_id)
     if not user or not user.is_active:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
@@ -278,6 +286,7 @@ def trigger_alarm():
         trigger_source=trigger_source,
         alert_type=alert_type,
         audience=audience,
+        home_distance_category=home_distance_category,
         status='active',
         escalation_stage=stages[0],
         geohash_snapshot=geohash,

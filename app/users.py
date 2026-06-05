@@ -71,6 +71,14 @@ def update_me():
         user.nearby_alerting_enabled = val
         changed = True
 
+    if 'home_address_label' in data:
+        user.home_address_label = (data['home_address_label'] or '').strip() or None
+        changed = True
+
+    if 'home_address' in data:
+        user.home_address = (data['home_address'] or '').strip() or None
+        changed = True
+
     if not changed:
         return jsonify({'error': 'Bad Request', 'code': 'NO_UPDATABLE_FIELDS'}), 400
 

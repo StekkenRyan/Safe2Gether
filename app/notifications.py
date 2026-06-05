@@ -118,6 +118,7 @@ def send_nearby_alert(
     distance_meters: int,
     responder_count: int = 0,
     alert_type: str = 'panic',
+    home_distance_category: str | None = None,
 ) -> None:
     """Non-blocking: notify a nearby user that an alarm was triggered.
 
@@ -143,6 +144,7 @@ def send_nearby_alert(
         'bearing_degrees': bearing_degrees,
         'distance_meters': distance_meters,
         'responder_count': responder_count,
+        'home_distance_category': home_distance_category,
     }
     threading.Thread(
         target=_send_apns, args=(device_token, payload, environment), daemon=True

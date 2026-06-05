@@ -38,6 +38,10 @@ class User(db.Model):
         db.Boolean, nullable=False, default=True, server_default='true'
     )
 
+    # Optional home address — used to pre-fill cantGetHome alerts on the client
+    home_address_label = db.Column(db.String(100), nullable=True)
+    home_address = db.Column(db.String(300), nullable=True)
+
     # User-configurable escalation chain. Stored as comma-separated stage names
     # (small ordered list; trade-off vs. JSON column is negligible for v1.0).
     escalation_order = db.Column(
@@ -83,6 +87,8 @@ class User(db.Model):
             'reputation_score': self.reputation_score,
             'reputation_level': self.reputation_level,
             'nearby_alerting_enabled': self.nearby_alerting_enabled,
+            'home_address_label': self.home_address_label,
+            'home_address': self.home_address,
             'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
             'updated_at': self.updated_at.isoformat() + 'Z' if self.updated_at else None,
         }
@@ -176,6 +182,9 @@ class Alarm(db.Model):
     geohash_snapshot = db.Column(db.String(20), nullable=True)
     exact_latitude = db.Column(db.Float, nullable=True)
     exact_longitude = db.Column(db.Float, nullable=True)
+    # Only set for cant_get_home alerts — coarse distance category to home
+    home_distance_category = db.Column(db.String(20), nullable=True)
+
     # DSGVO: auto-delete after 30 days
     auto_delete_at = db.Column(db.DateTime, nullable=False)
 
@@ -196,6 +205,7 @@ class Alarm(db.Model):
             'trigger_source': self.trigger_source,
             'alert_type': self.alert_type,
             'audience': self.audience,
+            'home_distance_category': self.home_distance_category,
             'status': self.status,
             'escalation_stage': self.escalation_stage,
             'geohash_snapshot': self.geohash_snapshot,
