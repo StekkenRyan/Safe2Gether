@@ -20,10 +20,8 @@ depends_on = None
 def upgrade():
     op.add_column('users', sa.Column('home_address_label', sa.String(100), nullable=True))
     op.add_column('users', sa.Column('home_address', sa.String(300), nullable=True))
-    op.add_column('alarms', sa.Column('home_distance_category', sa.String(20), nullable=True))
 
 
 def downgrade():
-    op.drop_column('alarms', 'home_distance_category')
     op.drop_column('users', 'home_address')
     op.drop_column('users', 'home_address_label')
