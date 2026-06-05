@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 from flask import Blueprint, g, jsonify, request
 
 from .db import db
-from .models import User
+from .models import Alarm, EmergencyContact, ReputationAction, SafetyTimer, User
 from .token import require_auth
 
 bp = Blueprint('users', __name__, url_prefix='/api/v1/users')
@@ -124,6 +124,56 @@ def delete_me():
     return jsonify({
         'scheduled_deletion_at': deletion_at.isoformat().replace('+00:00', 'Z'),
     }), 202
+
+
+@bp.get('/me/export')
+@require_auth
+def export_me():
+    """GDPR Art. 15 — data portability export.
+
+    Returns a single JSON object with all personal data held for the user.
+    Capped: last 100 alarms, last 50 reputation actions, all safety timers.
+    """
+    user = _get_active_user(g.user_id)
+    if not user:
+        return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
+
+    alarms = (
+        Alarm.query
+        .filter_by(user_id=g.user_id)
+        .order_by(Alarm.triggered_at.desc())
+        .limit(100)
+        .all()
+    )
+    reputation = (
+        ReputationAction.query
+        .filter_by(user_id=g.user_id)
+        .order_by(ReputationAction.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    contacts = (
+        EmergencyContact.query
+        .filter_by(user_id=g.user_id)
+        .order_by(EmergencyContact.order_in_escalation)
+        .all()
+    )
+    timers = (
+        SafetyTimer.query
+        .filter_by(user_id=g.user_id)
+        .order_by(SafetyTimer.created_at.desc())
+        .all()
+    )
+
+    return jsonify({
+        'exported_at': datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z'),
+        'user': user.to_dict(),
+        'escalation_chain': user.escalation_to_dict(),
+        'contacts': [c.to_dict() for c in contacts],
+        'alarm_history': [a.to_dict() for a in alarms],
+        'reputation_history': [r.to_dict() for r in reputation],
+        'safety_timer_history': [t.to_dict() for t in timers],
+    })
 
 
 @bp.get('/me/reputation')

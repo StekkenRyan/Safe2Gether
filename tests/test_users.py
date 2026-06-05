@@ -122,3 +122,54 @@ def test_get_reputation_empty(client, auth_headers):
 
 def test_get_reputation_unauthenticated(client):
     assert client.get('/api/v1/users/me/reputation').status_code == 401
+
+
+# ─── GDPR Art. 15 — data export ───────────────────────────────────────────────
+
+def test_export_requires_auth(client):
+    assert client.get('/api/v1/users/me/export').status_code == 401
+
+
+def test_export_structure(client, auth_user, auth_headers):
+    user, _ = auth_user
+    resp = client.get('/api/v1/users/me/export', headers=auth_headers)
+    assert resp.status_code == 200
+    data = resp.get_json()
+
+    assert 'exported_at' in data
+    assert data['user']['id'] == user.id
+    assert isinstance(data['contacts'], list)
+    assert isinstance(data['alarm_history'], list)
+    assert isinstance(data['reputation_history'], list)
+    assert isinstance(data['safety_timer_history'], list)
+    assert 'escalation_order' in data['escalation_chain']
+    assert 'delay_seconds_between_stages' in data['escalation_chain']
+
+
+def test_export_includes_alarm_history(client, auth_headers):
+    client.post('/api/v1/alarms', json={'trigger_source': 'in_app'}, headers=auth_headers)
+    resp = client.get('/api/v1/users/me/export', headers=auth_headers)
+    assert resp.status_code == 200
+    alarms = resp.get_json()['alarm_history']
+    assert len(alarms) == 1
+    assert alarms[0]['trigger_source'] == 'in_app'
+    assert 'alert_type' in alarms[0]
+    assert 'audience' in alarms[0]
+
+
+def test_export_includes_safety_timer_history(client, auth_headers):
+    # Create and immediately cancel a timer so it lands in history
+    resp = client.post(
+        '/api/v1/safety-timers',
+        json={'duration_seconds': 600},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 201
+    timer_id = resp.get_json()['id']
+    client.delete(f'/api/v1/safety-timers/{timer_id}', headers=auth_headers)
+
+    export = client.get('/api/v1/users/me/export', headers=auth_headers).get_json()
+    timers = export['safety_timer_history']
+    assert len(timers) == 1
+    assert timers[0]['id'] == timer_id
+    assert timers[0]['status'] == 'cancelled'

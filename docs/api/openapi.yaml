@@ -162,7 +162,7 @@ components:
 
     Alarm:
       type: object
-      required: [id, user_id, triggered_at, trigger_source, status, escalation_stage]
+      required: [id, user_id, triggered_at, trigger_source, alert_type, audience, status, escalation_stage]
       properties:
         id:
           type: string
@@ -180,6 +180,24 @@ components:
             - **in_app** / **widget**: manual Panic Button
             - **hardware_button**: LoRa key fob (v2.0)
             - **dead_mans_switch**: server-initiated escalation (v2.0)
+        alert_type:
+          type: string
+          enum: [panic, need_help, car_breakdown, cant_get_home]
+          default: panic
+          description: Semantic type of the alarm — displayed in push and UI
+        audience:
+          type: string
+          enum: [contacts, community, contacts_and_community]
+          default: contacts_and_community
+          description: |
+            Who should be notified. Overrides the user's escalation chain:
+            - **contacts**: only in-app emergency contacts
+            - **community**: only nearby anonymous users
+            - **contacts_and_community**: full escalation chain (default)
+        home_distance_category:
+          type: [string, 'null']
+          enum: [under_1km, 1_5km, 5_15km, over_15km, null]
+          description: Only present for cant_get_home alerts — coarse distance to home
         status:
           type: string
           enum: [active, resolved, false_alarm]
@@ -201,6 +219,44 @@ components:
           type: string
           format: date-time
           description: GDPR — record is automatically purged 30 days after creation
+
+    SafetyTimer:
+      type: object
+      required: [id, user_id, duration_seconds, expires_at, status, notify_community, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        duration_seconds:
+          type: integer
+          minimum: 60
+          example: 3600
+        expires_at:
+          type: string
+          format: date-time
+        status:
+          type: string
+          enum: [active, checkin_requested, triggered, cancelled, checked_in]
+        notify_contact_ids:
+          type: array
+          description: In-app contact user IDs to notify when timer triggers
+          items:
+            type: string
+            format: uuid
+        notify_community:
+          type: boolean
+          default: false
+          description: Whether to also alert nearby community users when timer triggers
+        note:
+          type: [string, 'null']
+          maxLength: 200
+          description: Optional context message shown in the check-in push
+        created_at:
+          type: string
+          format: date-time
 
     ReputationAction:
       type: object
@@ -861,6 +917,18 @@ paths:
                 trigger_source:
                   type: string
                   enum: [in_app, widget, hardware_button]
+                alert_type:
+                  type: string
+                  enum: [panic, need_help, car_breakdown, cant_get_home]
+                  default: panic
+                audience:
+                  type: string
+                  enum: [contacts, community, contacts_and_community]
+                  default: contacts_and_community
+                home_distance_category:
+                  type: string
+                  enum: [under_1km, 1_5km, 5_15km, over_15km]
+                  description: Required when alert_type is cant_get_home
                 geohash_snapshot:
                   type: string
                   description: |
@@ -1038,6 +1106,204 @@ paths:
 
   # ── Heartbeat ─────────────────────────────────────────────
 
+  /api/v1/users/me/export:
+    get:
+      tags: [users]
+      operationId: exportMyData
+      summary: GDPR Art. 15 — personal data export
+      description: |
+        Returns a single JSON document containing all personal data held for the
+        authenticated user: profile, emergency contacts, alarm history (last 100),
+        reputation history (last 50), escalation chain, and safety-timer history.
+
+        The iOS app downloads this and offers it as `safe2gether_daten_export.json`
+        via the Share Sheet.
+      responses:
+        '200':
+          description: Complete personal data export
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exported_at, user, escalation_chain, contacts, alarm_history,
+                           reputation_history, safety_timer_history]
+                properties:
+                  exported_at:
+                    type: string
+                    format: date-time
+                  user:
+                    $ref: '#/components/schemas/User'
+                  escalation_chain:
+                    type: object
+                    properties:
+                      escalation_order:
+                        type: array
+                        items:
+                          type: string
+                      delay_seconds_between_stages:
+                        type: integer
+                  contacts:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EmergencyContact'
+                  alarm_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Alarm'
+                  reputation_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/ReputationAction'
+                  safety_timer_history:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/SafetyTimer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
+  /api/v1/safety-timers:
+    post:
+      tags: [safety-timers]
+      operationId: createSafetyTimer
+      summary: Start a Dead Man's Switch timer
+      description: |
+        Creates a new active safety timer. If the owner does not check in before
+        `expires_at`, the server sends a "Bist du okay?" push. If there is still
+        no check-in within the 5-minute grace period, the timer triggers and
+        notifies the configured contacts (and optionally the community).
+
+        Only one timer may be active per user at a time.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [duration_seconds]
+              properties:
+                duration_seconds:
+                  type: integer
+                  minimum: 60
+                  example: 3600
+                notify_contact_ids:
+                  type: array
+                  items:
+                    type: string
+                    format: uuid
+                  description: In-app contact IDs to notify on trigger
+                notify_community:
+                  type: boolean
+                  default: false
+                note:
+                  type: string
+                  maxLength: 200
+      responses:
+        '201':
+          description: Timer created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetyTimer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: A timer is already active for this user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/safety-timers/active:
+    get:
+      tags: [safety-timers]
+      operationId: getActiveSafetyTimer
+      summary: Get the currently active timer
+      responses:
+        '200':
+          description: Active timer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SafetyTimer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: No active timer
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/safety-timers/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    delete:
+      tags: [safety-timers]
+      operationId: cancelSafetyTimer
+      summary: Cancel an active timer
+      responses:
+        '204':
+          description: Timer cancelled (no body)
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Timer is not in an active or checkin_requested state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /api/v1/safety-timers/{id}/checkin:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+
+    post:
+      tags: [safety-timers]
+      operationId: checkinSafetyTimer
+      summary: Check in to confirm you are okay
+      description: |
+        Marks the timer as checked_in. Stops further escalation.
+        Can be called on a timer in either `active` or `checkin_requested` state.
+      responses:
+        '200':
+          description: Checked in — timer is now resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status]
+                properties:
+                  status:
+                    type: string
+                    example: ok
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Timer is not in an active or checkin_requested state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
   /api/v1/heartbeat:
     post:
       tags: [heartbeat]
@@ -1083,8 +1349,11 @@ x-websocket:
 x-planned-v2:
   description: |
     Endpoints planned for v2.0 — NOT part of this contract:
-    - Dead Man's Switch escalation (server-initiated, trigger_source: dead_mans_switch)
     - EXPECTED_OFFLINE heartbeat with configurable timer
     - Premium live location sharing (groups)
     - LoRa hardware gateway ingest (POST /api/v1/webhooks/lora)
     - Full AsyncAPI WebSocket specification
+
+    Note: Dead Man's Switch (safety-timers) shipped in v1.2. GDPR data export
+    (GET /api/v1/users/me/export) and alert_type/audience on alarms also shipped
+    in v1.2.

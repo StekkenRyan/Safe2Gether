@@ -304,3 +304,55 @@ def test_owner_reputation_unaffected_by_resolve(client, app, make_user):
 
     rep = _get_reputation(client, owner_headers)
     assert rep['score'] == 0
+
+
+# ─── alert_type + audience ────────────────────────────────────────────────────
+
+def test_trigger_alarm_defaults(client, auth_headers):
+    data = _trigger(client, auth_headers).get_json()
+    assert data['alert_type'] == 'panic'
+    assert data['audience'] == 'contacts_and_community'
+    assert data['home_distance_category'] is None
+
+
+def test_trigger_alarm_with_alert_type_and_audience(client, auth_headers):
+    resp = client.post('/api/v1/alarms', json={
+        'trigger_source': 'in_app',
+        'alert_type': 'need_help',
+        'audience': 'contacts',
+    }, headers=auth_headers)
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data['alert_type'] == 'need_help'
+    assert data['audience'] == 'contacts'
+
+
+def test_trigger_cant_get_home_with_distance(client, auth_headers):
+    resp = client.post('/api/v1/alarms', json={
+        'trigger_source': 'in_app',
+        'alert_type': 'cant_get_home',
+        'audience': 'contacts_and_community',
+        'home_distance_category': 'over_15km',
+    }, headers=auth_headers)
+    assert resp.status_code == 201
+    data = resp.get_json()
+    assert data['alert_type'] == 'cant_get_home'
+    assert data['home_distance_category'] == 'over_15km'
+
+
+def test_patch_alarm_response_includes_alert_type_and_audience(client, auth_headers):
+    alarm_id = client.post('/api/v1/alarms', json={
+        'trigger_source': 'in_app',
+        'alert_type': 'car_breakdown',
+        'audience': 'community',
+    }, headers=auth_headers).get_json()['id']
+
+    resp = client.patch(
+        f'/api/v1/alarms/{alarm_id}',
+        json={'status': 'resolved'},
+        headers=auth_headers,
+    )
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['alert_type'] == 'car_breakdown'
+    assert data['audience'] == 'community'
