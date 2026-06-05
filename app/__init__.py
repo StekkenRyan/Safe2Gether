@@ -142,4 +142,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .admin import bp as admin_bp
     app.register_blueprint(admin_bp)
 
+    _debug_env = app.config.get('DEBUG') or app.config.get('ENV') == 'development'
+    if _debug_env or app.config.get('TESTING'):
+        from .debug import bp as debug_bp
+        app.register_blueprint(debug_bp)
+
     return app

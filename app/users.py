@@ -11,6 +11,7 @@ from .token import require_auth
 bp = Blueprint('users', __name__, url_prefix='/api/v1/users')
 
 _DELETION_GRACE_DAYS = 30
+_DEBUG_TEST_USER_ID = '0d9d31df-6bea-49bc-849b-36746be384d4'
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$')
 _PHONE_RE = re.compile(r'^\+?[0-9]{7,15}$')
 
@@ -95,6 +96,9 @@ def delete_me():
     Accepts an optional `refresh_token` body param; if provided, the token is
     revoked immediately so the deleted account cannot obtain new access tokens.
     """
+    if g.user_id == _DEBUG_TEST_USER_ID:
+        return jsonify({'error': 'Forbidden', 'code': 'CANNOT_DELETE_TEST_USER'}), 403
+
     user = _get_active_user(g.user_id)
     if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
