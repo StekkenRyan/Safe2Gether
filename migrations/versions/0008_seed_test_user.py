@@ -22,11 +22,18 @@ _TEST_USER_EMAIL = 'kontakt@safe2gether.de'
 
 def upgrade():
     conn = op.get_bind()
-    existing = conn.execute(
-        sa.text('SELECT id FROM users WHERE id = :id'),
+    # Guard against two distinct conflict scenarios:
+    # 1. Row already exists with this UUID (expected in dev after first run)
+    # 2. Email already exists under a different UUID (prod DB has this account as a real user)
+    by_id = conn.execute(
+        sa.text("SELECT id FROM users WHERE id = :id"),
         {'id': _TEST_USER_ID},
     ).fetchone()
-    if existing is None:
+    by_email = conn.execute(
+        sa.text("SELECT id FROM users WHERE email = :email AND auth_provider = 'email'"),
+        {'email': _TEST_USER_EMAIL},
+    ).fetchone()
+    if by_id is None and by_email is None:
         conn.execute(
             sa.text(
                 'INSERT INTO users (id, auth_provider, email) '
