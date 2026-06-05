@@ -26,6 +26,7 @@ services:
       JWT_SECRET_KEY: ${DEV_JWT_SECRET_KEY:-change-me-dev}
       JWT_ACCESS_TOKEN_EXPIRES: "3600"
       JWT_REFRESH_TOKEN_EXPIRES: "2592000"
+      ENV: dev
       APNS_SANDBOX: "true"
       APNS_KEY_PATH: /run/secrets/apns_key.p8
       APNS_KEY_ID: ${APNS_KEY_ID}
