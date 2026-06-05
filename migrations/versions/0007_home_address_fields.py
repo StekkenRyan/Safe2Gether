@@ -1,17 +1,16 @@
-"""add home_address fields to users; add home_distance_category to alarms
+"""add home_address fields to users
 
-Revision ID: 7b449bdbdfb9
+Revision ID: 0007
 Revises: 0006
 Create Date: 2026-06-05
 
-Adds home_address_label and home_address to users (optional home location for
-Dead Man's Switch routing). Adds home_distance_category to alarms (was missing
-from the 0006 DDL run on production due to the alembic_version mismatch).
+Adds home_address_label and home_address to users — optional home location
+used by the Dead Man's Switch for proximity-based routing.
 """
 import sqlalchemy as sa
 from alembic import op
 
-revision = '7b449bdbdfb9'
+revision = '0007'
 down_revision = '0006'
 branch_labels = None
 depends_on = None

@@ -1,7 +1,7 @@
 PYTHON := $(shell command -v python3.12 2>/dev/null || command -v python3 2>/dev/null)
 VENV   := .venv
 
-.PHONY: dev prod down migrate migrate-create shell psql logs backup build \
+.PHONY: dev prod down migrate migrate-dev migrate-create shell psql logs backup build \
         lint lint-fix lint-openapi test check install-dev install-hooks \
         prod-with-dev prod-with-dev-build dev-rebuild \
         prod-with-landing prod-full
@@ -52,6 +52,9 @@ prod-full:
 
 migrate:
 	docker compose exec api flask db upgrade
+
+migrate-dev:
+	docker compose -f docker-compose.yml -f docker-compose.dev-server.yml exec api-dev flask db upgrade
 
 migrate-create:
 	@if [ -z "$(msg)" ]; then echo "Usage: make migrate-create msg=\"your message\""; exit 1; fi
