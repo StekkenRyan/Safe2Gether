@@ -252,8 +252,11 @@ def trigger_alarm():
 
     home_distance_category = data.get('home_distance_category') or None
     if home_distance_category and home_distance_category not in _VALID_HOME_DISTANCES:
-        return jsonify({'error': 'Bad Request', 'code': 'INVALID_HOME_DISTANCE_CATEGORY',
-                        'detail': f'home_distance_category must be one of {_VALID_HOME_DISTANCES}'}), 400
+        return jsonify({
+            'error': 'Bad Request',
+            'code': 'INVALID_HOME_DISTANCE_CATEGORY',
+            'detail': f'home_distance_category must be one of {_VALID_HOME_DISTANCES}',
+        }), 400
 
     user = db.session.get(User, g.user_id)
     if not user or not user.is_active:
