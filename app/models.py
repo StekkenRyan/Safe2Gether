@@ -38,6 +38,10 @@ class User(db.Model):
         db.Boolean, nullable=False, default=True, server_default='true'
     )
 
+    # Last known H3 cell — persisted as a DB fallback when the Redis TTL has
+    # expired (e.g. device was offline). Written on every PUT /geohash.
+    last_geohash = db.Column(db.String(20), nullable=True)
+
     # Optional home address — used to pre-fill cantGetHome alerts on the client
     home_address_label = db.Column(db.String(100), nullable=True)
     home_address = db.Column(db.String(300), nullable=True)

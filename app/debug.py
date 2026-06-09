@@ -22,6 +22,23 @@ from .token import require_auth
 logger = logging.getLogger(__name__)
 bp = Blueprint('debug', __name__, url_prefix='/api/v1/debug')
 
+
+def _last_known_cell(user_id: str) -> str | None:
+    """Redis-first, DB-fallback lookup of a user's last H3 cell."""
+    try:
+        cell = _redis().get(f'{GEO_USER}{user_id}')
+        if cell and h3.is_valid_cell(cell):
+            return cell
+    except Exception:
+        pass
+    try:
+        user = db.session.get(User, user_id)
+        if user and user.last_geohash and h3.is_valid_cell(user.last_geohash):
+            return user.last_geohash
+    except Exception:
+        pass
+    return None
+
 _TEST_USER_ID = '0d9d31df-6bea-49bc-849b-36746be384d4'
 _TEST_USER_EMAIL = 'kontakt@safe2gether.de'
 
@@ -55,8 +72,8 @@ def resolve_alarm_location(
     Falls back to Taxispark defaults when the recipient has no cached cell.
     """
     try:
-        cell = _redis().get(f'{GEO_USER}{for_user_id}') if for_user_id else None
-        if cell and h3.is_valid_cell(cell):
+        cell = _last_known_cell(for_user_id) if for_user_id else None
+        if cell:
             c_lat, c_lng = h3.cell_to_latlng(cell)
             if contact:
                 dist = round(haversine_meters(c_lat, c_lng, _DEMO_LAT, _DEMO_LNG), 1)

@@ -11,6 +11,8 @@ import h3
 import redis as redis_lib
 from flask import Blueprint, g, jsonify, request
 
+from .db import db
+from .models import User
 from .redis_keys import GEO_CELL, GEO_USER
 from .token import require_auth
 
@@ -176,5 +178,14 @@ def update_geohash():
     except redis_lib.RedisError as exc:
         return jsonify({'error': 'Service Unavailable', 'code': 'REDIS_ERROR',
                         'detail': str(exc)}), 503
+
+    # Persist last_geohash to DB so debug distance calculation survives Redis TTL expiry.
+    try:
+        user = db.session.get(User, g.user_id)
+        if user:
+            user.last_geohash = geohash
+            db.session.commit()
+    except Exception:
+        db.session.rollback()
 
     return '', 204
