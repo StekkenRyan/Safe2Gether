@@ -739,9 +739,12 @@ def push_test_alarm():
     environment = rows[0]['apns_environment'] or 'sandbox'
 
     try:
-        from .debug import create_debug_alarm, ensure_test_user
+        from .debug import create_debug_alarm, ensure_test_user, resolve_alarm_location
+        geohash, bearing, distance, lat, lng = resolve_alarm_location(
+            for_user_id=user_id, contact=(alarm_type == 'contact')
+        )
         test_user = ensure_test_user()
-        alarm = create_debug_alarm(test_user)
+        alarm = create_debug_alarm(test_user, geohash=geohash, lat=lat, lng=lng)
     except Exception as exc:
         session['push_result'] = {
             'ok': False, 'status': 0, 'body': f'Alarm-Erstellung fehlgeschlagen: {exc}'
@@ -760,8 +763,8 @@ def push_test_alarm():
             'type': 'nearby_alert',
             'alarm_id': alarm.id,
             'triggered_at': triggered_at,
-            'bearing_degrees': 45.0,
-            'distance_meters': 350.0,
+            'bearing_degrees': bearing,
+            'distance_meters': distance,
             'responder_count': 0,
             'alert_type': 'panic',
         }
