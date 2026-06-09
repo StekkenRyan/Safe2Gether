@@ -14,7 +14,7 @@ services:
     environment:
       FLASK_DEBUG: "0"
       ENV: prod
-    command: gunicorn -w 2 -b 0.0.0.0:5000 --worker-class eventlet wsgi:app
+    command: gunicorn -w 2 -b 0.0.0.0:5000 --worker-class eventlet --access-logfile - wsgi:app
     ports: !reset []  # cloudflared handles all ingress; no direct port exposure
     restart: always
 

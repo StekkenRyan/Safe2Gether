@@ -33,7 +33,7 @@ services:
       APNS_TEAM_ID: ${APNS_TEAM_ID}
       APNS_BUNDLE_ID: ${APNS_BUNDLE_ID:-com.safe2gether.app}
       CORS_ORIGINS: ${DEV_CORS_ORIGINS:-http://localhost:3000}
-    command: gunicorn -w 1 -b 0.0.0.0:5000 --worker-class eventlet --timeout 60 wsgi:app
+    command: gunicorn -w 1 -b 0.0.0.0:5000 --worker-class eventlet --timeout 60 --access-logfile - wsgi:app
     depends_on:
       redis-dev:
         condition: service_healthy
