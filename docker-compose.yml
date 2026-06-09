@@ -9,6 +9,7 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://safe2gether:${POSTGRES_PASSWORD:-devpassword}@postgres:5432/safe2gether
       NODE_ID: ${NODE_ID:-dev-node}
+      TZ: Europe/Berlin
     env_file:
       - .env
     volumes:
