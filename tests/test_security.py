@@ -42,9 +42,12 @@ def test_expired_token_returns_401(client, auth_user):
 
 def test_tampered_token_rejected(client, auth_user):
     _, token = auth_user
-    # Flip a character in the signature
+    # Flip the FIRST character of the signature — always fully significant
+    # (the last char has 2 non-significant padding bits that base64 decoders
+    # may ignore, making a last-char flip occasionally undetected).
     parts = token.split('.')
-    parts[-1] = parts[-1][:-1] + ('A' if parts[-1][-1] != 'A' else 'B')
+    sig = parts[-1]
+    parts[-1] = ('A' if sig[0] != 'A' else 'B') + sig[1:]
     bad_token = '.'.join(parts)
     resp = client.get('/api/v1/users/me', headers={'Authorization': f'Bearer {bad_token}'})
     assert resp.status_code == 401
