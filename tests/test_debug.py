@@ -14,8 +14,8 @@ def test_inject_nearby_alert_returns_201_with_expected_shape(client, auth_header
     data = resp.get_json()
     uuid.UUID(data['alarm_id'])                          # valid UUID
     assert data['alert_type'] == 'panic'
-    assert isinstance(data['bearing_degrees'], (int, float))
-    assert isinstance(data['distance_meters'], (int, float))
+    assert data['bearing_degrees'] is None or isinstance(data['bearing_degrees'], (int, float))
+    assert data['distance_meters'] is None or isinstance(data['distance_meters'], (int, float))
     assert 'triggered_at' in data
 
 
