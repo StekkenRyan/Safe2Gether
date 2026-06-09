@@ -29,9 +29,6 @@ _DEMO_LAT = 48.58153   # Taxispark, Dillingen an der Donau
 _DEMO_LNG = 10.49527
 _DEMO_GEOHASH = h3.latlng_to_cell(_DEMO_LAT, _DEMO_LNG, 7)
 
-_DEFAULT_BEARING = 124.0
-_DEFAULT_DISTANCE = 480.0
-
 
 def _redis() -> redis_lib.Redis:
     return redis_lib.from_url(
@@ -73,7 +70,7 @@ def resolve_alarm_location(
     for_user_id: str | None = None,
     contact: bool = False,
     override_cell: str | None = None,
-) -> tuple[str, float, float, float, float]:
+) -> tuple[str, float | None, float | None, float, float]:
     """Return (geohash, bearing_deg, distance_m, lat, lng) for a debug alarm.
 
     Cell priority: override_cell (from request body) → Redis → Taxispark fallback.
@@ -97,10 +94,10 @@ def resolve_alarm_location(
                 dist = round(haversine_meters(c_lat, c_lng, a_lat, a_lng), 1)
                 bear = round(bearing_between(c_lat, c_lng, a_lat, a_lng), 1)
                 return alarm_cell, bear, dist, a_lat, a_lng
-        logger.warning('debug: no location for user=%s — using Taxispark fallback', for_user_id)
+        logger.warning('debug: no location for user=%s — bearing/distance null', for_user_id)
     except Exception:
         pass
-    return _DEMO_GEOHASH, _DEFAULT_BEARING, _DEFAULT_DISTANCE, _DEMO_LAT, _DEMO_LNG
+    return _DEMO_GEOHASH, None, None, _DEMO_LAT, _DEMO_LNG
 
 
 def ensure_test_user() -> User:
