@@ -1,10 +1,14 @@
 """Admin dashboard blueprint — /admin."""
+import base64
 import functools
+import io
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
+import pyotp
+import qrcode
 import redis as redis_lib
 from flask import Blueprint, jsonify, redirect, render_template, request, session, url_for
 from sqlalchemy import text
@@ -32,6 +36,38 @@ _ENV_CONFIG = {
 def inject_env() -> dict:
     cfg = _ENV_CONFIG.get(_ENV, _ENV_CONFIG['dev'])
     return {'env': _ENV, 'env_cfg': cfg}
+
+
+# ── 2FA (TOTP) ────────────────────────────────────────────────────────────────
+
+_TOTP_SECRET = os.environ.get('ADMIN_TOTP_SECRET', '')
+
+
+def _totp_qr_png_b64(secret: str) -> str:
+    uri = pyotp.TOTP(secret).provisioning_uri(
+        name='Safe2Gether Admin', issuer_name='Safe2Gether'
+    )
+    img = qrcode.make(uri)
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def _totp_code_fresh(code: str) -> bool:
+    """Return True if the code is valid and not replayed within the last 90 s."""
+    if not _TOTP_SECRET or not code:
+        return False
+    if not pyotp.TOTP(_TOTP_SECRET).verify(code, valid_window=1):
+        return False
+    try:
+        r = _redis()
+        key = f'admin:totp_used:{code}'
+        if r.exists(key):
+            return False  # replay attempt
+        r.setex(key, 90, '1')
+    except Exception:
+        pass  # Redis outage: skip replay check rather than locking out admin
+    return True
 
 
 # ── Auth helpers ──────────────────────────────────────────────────────────────
@@ -88,14 +124,24 @@ def require_admin(f):
     @functools.wraps(f)
     def _wrapped(*args, **kwargs):
         if not session.get('admin_logged_in'):
+            if session.get('admin_2fa_pending'):
+                return redirect(url_for('admin.totp_verify'))
             return redirect(url_for('admin.login'))
-        # Absolute session timeout: reject sessions older than _SESSION_MAX_AGE
         login_ts = session.get('admin_login_at')
         if login_ts:
             age = datetime.now(timezone.utc) - datetime.fromisoformat(login_ts)
             if age > _SESSION_MAX_AGE:
                 session.clear()
                 return redirect(url_for('admin.login'))
+        return f(*args, **kwargs)
+    return _wrapped
+
+
+def _require_2fa_pending(f):
+    @functools.wraps(f)
+    def _wrapped(*args, **kwargs):
+        if not session.get('admin_2fa_pending'):
+            return redirect(url_for('admin.login'))
         return f(*args, **kwargs)
     return _wrapped
 
@@ -274,9 +320,12 @@ def login_post():
     if _check_credentials(username, password):
         _clear_login_failures()
         session.clear()
-        session['admin_logged_in'] = True
         session['admin_login_at'] = datetime.now(timezone.utc).isoformat()
         session.permanent = False
+        if _TOTP_SECRET:
+            session['admin_2fa_pending'] = True
+            return redirect(url_for('admin.totp_verify'))
+        session['admin_logged_in'] = True
         return redirect(url_for('admin.dashboard'))
 
     _record_failed_login()
@@ -440,3 +489,84 @@ def user_reset_score(user_id: str):
     except Exception:
         db.session.rollback()
     return redirect(url_for('admin.user_detail', user_id=user_id))
+
+
+@bp.post('/users/<user_id>/delete')
+@require_admin
+def user_delete(user_id: str):
+    """Hard-delete a user. Guard: only allowed when is_active = false."""
+    try:
+        result = db.session.execute(
+            text('DELETE FROM users WHERE id = :id AND is_active = false'),
+            {'id': user_id},
+        )
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+        return redirect(url_for('admin.user_detail', user_id=user_id))
+    if result.rowcount == 0:
+        return redirect(url_for('admin.user_detail', user_id=user_id))
+    return redirect(url_for('admin.user_list'))
+
+
+# ── 2FA routes ────────────────────────────────────────────────────────────────
+
+@bp.get('/2fa/verify')
+@_require_2fa_pending
+def totp_verify():
+    return render_template('admin/2fa_verify.html', error=None)
+
+
+@bp.post('/2fa/verify')
+@_require_2fa_pending
+def totp_verify_post():
+    code = request.form.get('code', '').strip().replace(' ', '')
+    if _totp_code_fresh(code):
+        session.pop('admin_2fa_pending', None)
+        session['admin_logged_in'] = True
+        return redirect(url_for('admin.dashboard'))
+    return render_template('admin/2fa_verify.html', error='Ungültiger oder abgelaufener Code.'), 401
+
+
+@bp.get('/2fa/setup')
+@require_admin
+def totp_setup():
+    if _TOTP_SECRET:
+        secret = _TOTP_SECRET
+        session.pop('totp_setup_secret', None)
+    else:
+        secret = session.get('totp_setup_secret') or pyotp.random_base32()
+        session['totp_setup_secret'] = secret
+    return render_template(
+        'admin/2fa_setup.html',
+        secret=secret,
+        qr_b64=_totp_qr_png_b64(secret),
+        already_configured=bool(_TOTP_SECRET),
+        verified=False,
+        error=None,
+    )
+
+
+@bp.post('/2fa/setup')
+@require_admin
+def totp_setup_post():
+    secret = _TOTP_SECRET or session.get('totp_setup_secret', '')
+    code = request.form.get('code', '').strip().replace(' ', '')
+    if secret and pyotp.TOTP(secret).verify(code, valid_window=1):
+        session.pop('totp_setup_secret', None)
+        return render_template(
+            'admin/2fa_setup.html',
+            secret=secret,
+            qr_b64=_totp_qr_png_b64(secret),
+            already_configured=bool(_TOTP_SECRET),
+            verified=True,
+            error=None,
+        )
+    return render_template(
+        'admin/2fa_setup.html',
+        secret=secret,
+        qr_b64=_totp_qr_png_b64(secret),
+        already_configured=bool(_TOTP_SECRET),
+        verified=False,
+        error='Ungültiger Code — bitte erneut versuchen.',
+    ), 400
