@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import h3
 import redis as redis_lib
-from flask import Blueprint, g, jsonify
+from flask import Blueprint, g, jsonify, request
 
 from .db import db
 from .geo import bearing_between, haversine_meters
@@ -21,23 +21,6 @@ from .token import require_auth
 
 logger = logging.getLogger(__name__)
 bp = Blueprint('debug', __name__, url_prefix='/api/v1/debug')
-
-
-def _last_known_cell(user_id: str) -> str | None:
-    """Redis-first, DB-fallback lookup of a user's last H3 cell."""
-    try:
-        cell = _redis().get(f'{GEO_USER}{user_id}')
-        if cell and h3.is_valid_cell(cell):
-            return cell
-    except Exception:
-        pass
-    try:
-        user = db.session.get(User, user_id)
-        if user and user.last_geohash and h3.is_valid_cell(user.last_geohash):
-            return user.last_geohash
-    except Exception:
-        pass
-    return None
 
 _TEST_USER_ID = '0d9d31df-6bea-49bc-849b-36746be384d4'
 _TEST_USER_EMAIL = 'kontakt@safe2gether.de'
@@ -58,21 +41,49 @@ def _redis() -> redis_lib.Redis:
     )
 
 
+def _cell_from_redis(user_id: str) -> str | None:
+    """Return the user's current H3 cell from Redis, or None."""
+    try:
+        cell = _redis().get(f'{GEO_USER}{user_id}')
+        if cell and h3.is_valid_cell(cell):
+            return cell
+    except Exception:
+        pass
+    return None
+
+
+def _cell_from_body(data: dict) -> str | None:
+    """Extract an H3 cell from a request body dict (geohash or lat/lng).
+
+    Location is used only in-memory for this request — never stored, never logged.
+    """
+    raw = data.get('geohash')
+    if isinstance(raw, str) and h3.is_valid_cell(raw.strip()):
+        return raw.strip()
+    lat, lng = data.get('latitude'), data.get('longitude')
+    if isinstance(lat, (int, float)) and isinstance(lng, (int, float)):
+        try:
+            return h3.latlng_to_cell(float(lat), float(lng), 7)
+        except Exception:
+            pass
+    return None
+
+
 def resolve_alarm_location(
     for_user_id: str | None = None,
     contact: bool = False,
+    override_cell: str | None = None,
 ) -> tuple[str, float, float, float, float]:
     """Return (geohash, bearing_deg, distance_m, lat, lng) for a debug alarm.
 
-    contact=False (nearby_alert): alarm placed _NEARBY_DISTANCE m NE of the
-        recipient's H3 cell centre — pin appears close to the tester.
-    contact=True (contact_alarm): alarm is always fixed at Taxispark Dillingen;
-        bearing/distance are calculated from the recipient to Dillingen so the
-        cross-city scenario (e.g. FN → Dillingen) is correctly simulated.
-    Falls back to Taxispark defaults when the recipient has no cached cell.
+    Cell priority: override_cell (from request body) → Redis → Taxispark fallback.
+
+    contact=False (nearby_alert): alarm in a random neighbour cell of the recipient.
+    contact=True  (contact_alarm): alarm fixed at Taxispark; bearing/distance
+                                    from recipient to Dillingen (cross-city scenario).
     """
     try:
-        cell = _last_known_cell(for_user_id) if for_user_id else None
+        cell = override_cell or (_cell_from_redis(for_user_id) if for_user_id else None)
         if cell:
             c_lat, c_lng = h3.cell_to_latlng(cell)
             if contact:
@@ -86,6 +97,7 @@ def resolve_alarm_location(
                 dist = round(haversine_meters(c_lat, c_lng, a_lat, a_lng), 1)
                 bear = round(bearing_between(c_lat, c_lng, a_lat, a_lng), 1)
                 return alarm_cell, bear, dist, a_lat, a_lng
+        logger.warning('debug: no location for user=%s — using Taxispark fallback', for_user_id)
     except Exception:
         pass
     return _DEMO_GEOHASH, _DEFAULT_BEARING, _DEFAULT_DISTANCE, _DEMO_LAT, _DEMO_LNG
@@ -132,8 +144,13 @@ def create_debug_alarm(
 @bp.post('/inject-nearby-alert')
 @require_auth
 def inject_nearby_alert():
+    data = request.get_json(silent=True) or {}
+    override_cell = _cell_from_body(data)
+
     test_user = ensure_test_user()
-    geohash, bearing, distance, lat, lng = resolve_alarm_location(for_user_id=g.user_id)
+    geohash, bearing, distance, lat, lng = resolve_alarm_location(
+        for_user_id=g.user_id, override_cell=override_cell,
+    )
     alarm = create_debug_alarm(test_user, geohash=geohash, lat=lat, lng=lng)
 
     triggered_at = alarm.triggered_at.isoformat() + 'Z' if alarm.triggered_at else ''
@@ -151,9 +168,12 @@ def inject_nearby_alert():
 @bp.post('/inject-contact-alarm')
 @require_auth
 def inject_contact_alarm():
+    data = request.get_json(silent=True) or {}
+    override_cell = _cell_from_body(data)
+
     test_user = ensure_test_user()
     geohash, _bearing, _distance, lat, lng = resolve_alarm_location(
-        for_user_id=g.user_id, contact=True
+        for_user_id=g.user_id, contact=True, override_cell=override_cell,
     )
     alarm = create_debug_alarm(test_user, geohash=geohash, lat=lat, lng=lng)
 
