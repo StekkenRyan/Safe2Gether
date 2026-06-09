@@ -1,0 +1,186 @@
+{% extends "admin/base.html" %}
+{% set active_nav = 'push' %}
+
+{% block title %}Test-Push — Safe2Gether Admin{% endblock %}
+
+{% block admin_content %}
+<main class="flex-1 px-4 sm:px-6 py-6 max-w-6xl mx-auto w-full space-y-6">
+
+  <h1 class="text-lg font-semibold text-slate-100">Test-Push</h1>
+
+  <!-- ── Ergebnis-Banner ───────────────────────────────────────────────────── -->
+  {% if push_result %}
+    {% if push_result.ok %}
+    <div class="flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-teal-500/10 border border-teal-500/25 text-teal-300 text-sm">
+      <span class="text-base leading-none mt-0.5">✓</span>
+      <div>
+        <span class="font-medium">Push gesendet (APNs {{ push_result.status }})</span>
+        {% if push_result.body and push_result.body != 'OK' %}
+        <pre class="mt-1 text-xs text-teal-400/70 whitespace-pre-wrap">{{ push_result.body }}</pre>
+        {% endif %}
+      </div>
+    </div>
+    {% else %}
+    <div class="flex items-start gap-3 px-4 py-3 rounded-xl
+                bg-red-500/10 border border-red-500/25 text-red-300 text-sm">
+      <span class="text-base leading-none mt-0.5">✗</span>
+      <div>
+        <span class="font-medium">Fehler
+          {%- if push_result.status %} (APNs {{ push_result.status }}){% endif -%}
+        </span>
+        <pre class="mt-1 text-xs text-red-400/80 whitespace-pre-wrap">{{ push_result.body }}</pre>
+      </div>
+    </div>
+    {% endif %}
+  {% endif %}
+
+  <!-- ── Send-Formular ─────────────────────────────────────────────────────── -->
+  <div id="push-form-section"
+       class="bg-slate-800/50 border border-slate-700/60 rounded-xl p-5 space-y-4">
+    <div class="text-xs font-semibold text-teal-400 uppercase tracking-widest mb-1">
+      Push senden
+    </div>
+
+    <div id="sel-banner" class="hidden px-3 py-2 rounded-lg bg-slate-700/50 border
+         border-slate-600/60 text-xs text-slate-300 font-mono">
+      Gerät: <span id="sel-label" class="text-teal-300"></span>
+      <span id="sel-env-label" class="ml-2 text-slate-500"></span>
+    </div>
+
+    <form id="push-form" method="post" action="/admin/push" class="space-y-4">
+      <input type="hidden" id="sel-user-id" name="user_id" value="">
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <label class="block text-xs font-medium text-slate-400 mb-1.5">Push-Typ</label>
+          <select name="push_type"
+                  class="w-full text-sm bg-slate-700/60 border border-slate-600 text-slate-200
+                         rounded-lg px-3 py-2 focus:outline-none focus:border-teal-500/60">
+            {% for pt in push_types %}
+            <option value="{{ pt }}">{{ pt }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div>
+        <label class="block text-xs font-medium text-slate-400 mb-1.5">
+          Custom JSON
+          <span class="text-slate-600 font-normal ml-1">(optional — überschreibt den Typ-Payload)</span>
+        </label>
+        <textarea name="custom_json" rows="6" spellcheck="false"
+                  placeholder='{&#10;  "aps": { "alert": { "title": "Test", "body": "..." } }&#10;}'
+                  class="w-full text-xs font-mono bg-slate-900 border border-slate-700
+                         text-slate-300 rounded-lg px-3 py-2.5 resize-y
+                         focus:outline-none focus:border-teal-500/60 placeholder-slate-700"></textarea>
+      </div>
+
+      <button type="submit" id="send-btn" disabled
+              class="px-5 py-2 rounded-lg text-sm font-medium border transition-colors
+                     bg-slate-700/40 border-slate-600 text-slate-500 cursor-not-allowed
+                     disabled:opacity-60">
+        Push senden
+      </button>
+      <p id="send-hint" class="text-xs text-slate-600 mt-1">
+        Gerät aus der Tabelle auswählen, dann senden.
+      </p>
+    </form>
+  </div>
+
+  <!-- ── Geräteliste ───────────────────────────────────────────────────────── -->
+  <div class="bg-slate-800/50 border border-slate-700/60 rounded-xl overflow-hidden">
+    <div class="px-4 py-2.5 border-b border-slate-700/40 flex items-center justify-between">
+      <span class="text-xs font-semibold text-teal-400 uppercase tracking-widest">Geräte</span>
+      <span class="text-xs text-slate-500">{{ devices | length }} mit Push-Token</span>
+    </div>
+    {% if devices %}
+    <div class="overflow-x-auto">
+      <table class="w-full text-sm">
+        <thead>
+          <tr class="text-xs text-slate-500 text-left border-b border-slate-700/40">
+            <th class="px-4 py-2.5 font-medium">Nutzer</th>
+            <th class="px-4 py-2.5 font-medium">Token</th>
+            <th class="px-4 py-2.5 font-medium">Env</th>
+            <th class="px-4 py-2.5 font-medium">Registriert</th>
+            <th class="px-4 py-2.5 font-medium"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in devices %}
+          <tr class="border-t border-slate-700/30 hover:bg-slate-700/20 transition-colors
+                     device-row" id="row-{{ loop.index }}">
+            <td class="px-4 py-2.5">
+              <div class="text-xs text-slate-200">{{ d.email or '—' }}</div>
+              <div class="text-xs font-mono text-slate-600 mt-0.5">{{ d.id[:8] }}…</div>
+            </td>
+            <td class="px-4 py-2.5">
+              <span class="text-xs font-mono text-slate-600">
+                {{ d.apns_device_token[:8] }}…
+              </span>
+            </td>
+            <td class="px-4 py-2.5">
+              <span class="text-xs font-mono
+                {% if d.apns_environment == 'production' %}text-teal-400{% else %}text-amber-400{% endif %}">
+                {{ d.apns_environment or 'sandbox' }}
+              </span>
+            </td>
+            <td class="px-4 py-2.5 text-xs text-slate-500">
+              {{ d.created_at | dt }}
+            </td>
+            <td class="px-4 py-2.5 text-right">
+              <button type="button"
+                      onclick="selectDevice(
+                        '{{ d.id }}',
+                        '{{ (d.email or d.id[:12]) | replace("'", "\\'") }}',
+                        '{{ d.apns_environment or 'sandbox' }}',
+                        'row-{{ loop.index }}'
+                      )"
+                      class="px-3 py-1 rounded-lg text-xs border transition-colors
+                             bg-slate-700/40 border-slate-600 text-slate-300
+                             hover:bg-teal-500/15 hover:border-teal-500/40 hover:text-teal-300">
+                Auswählen
+              </button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% else %}
+    <div class="px-4 py-8 text-center text-xs text-slate-600">
+      Keine Geräte mit Push-Token registriert.
+    </div>
+    {% endif %}
+  </div>
+
+</main>
+
+<script>
+(function () {
+  let activeRow = null;
+
+  window.selectDevice = function (userId, label, env, rowId) {
+    document.getElementById('sel-user-id').value = userId;
+    document.getElementById('sel-label').textContent = label;
+    document.getElementById('sel-env-label').textContent = '(' + env + ')';
+    document.getElementById('sel-banner').classList.remove('hidden');
+
+    const btn  = document.getElementById('send-btn');
+    const hint = document.getElementById('send-hint');
+    btn.disabled = false;
+    btn.classList.remove('bg-slate-700/40', 'border-slate-600', 'text-slate-500', 'cursor-not-allowed', 'disabled:opacity-60');
+    btn.classList.add('bg-teal-500/15', 'border-teal-500/30', 'text-teal-300', 'hover:bg-teal-500/25');
+    hint.classList.add('hidden');
+
+    if (activeRow) {
+      document.getElementById(activeRow)?.classList.remove('ring-1', 'ring-teal-500/40');
+    }
+    activeRow = rowId;
+    document.getElementById(rowId)?.classList.add('ring-1', 'ring-teal-500/40');
+
+    document.getElementById('push-form-section').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
+}());
+</script>
+{% endblock %}

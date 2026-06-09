@@ -31,6 +31,16 @@
   <h1>Datenschutzerklärung</h1>
   <p class="subtitle">Stand: {{ date }}</p>
 
+  <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:10px;padding:1rem 1.25rem;margin-bottom:2rem;">
+    <p style="color:rgba(252,211,77,0.85);margin:0;font-size:0.875rem;">
+      <strong style="color:rgba(252,211,77,1);">Hinweis: Pre-Release-Version</strong><br>
+      Safe2Gether befindet sich derzeit in der Entwicklung und wurde noch nicht offiziell veröffentlicht.
+      Diese Datenschutzerklärung beschreibt den geplanten Betrieb der App. Funktionsumfang,
+      eingesetzte Dienste und Datenverarbeitungen können sich bis zum offiziellen Release noch ändern.
+      Mit jeder wesentlichen Änderung wird diese Erklärung aktualisiert.
+    </p>
+  </div>
+
   <h2>1. Verantwortlicher</h2>
   <p>
     Paul Czymek<br>
@@ -50,6 +60,14 @@
     <li><strong>Alarmhistorie:</strong> Auslösezeitpunkt, Status — automatische Löschung nach 30 Tagen (Art. 5 Abs. 1 lit. e DSGVO)</li>
     <li><strong>Push-Token:</strong> APNs Device Token für Benachrichtigungen</li>
     <li><strong>Notfallkontakte:</strong> Werden verschlüsselt auf dem Gerät gespeichert — kein zentrales Adressbuch auf dem Server</li>
+    <li><strong>Transaktionale E-Mails:</strong> Wir versenden E-Mails ausschließlich für folgende Zwecke:
+      <ul style="margin-top:0.35rem;">
+        <li>Passwort-Reset (auf Anfrage des Nutzers)</li>
+        <li>Pflichtmitteilungen bei wesentlichen Änderungen dieser Datenschutzerklärung (Art. 13 Abs. 3 DSGVO)</li>
+        <li>Technische Betriebsmitteilungen, die für die sichere Nutzung der App erforderlich sind (z. B. geplante Wartungsfenster, sicherheitsrelevante Updates)</li>
+      </ul>
+      Werbliche E-Mails werden nicht versendet.
+    </li>
   </ul>
 
   <h2>4. Rechtsgrundlagen</h2>
@@ -96,8 +114,15 @@
 
   <h2>9. Änderungen dieser Erklärung</h2>
   <p>
-    Wir behalten uns vor, diese Datenschutzerklärung bei Änderungen der App oder gesetzlicher
-    Anforderungen anzupassen. Die jeweils aktuelle Version ist in der App abrufbar.
+    Da sich Safe2Gether noch in der aktiven Entwicklung befindet, können sich Funktionsumfang
+    und Datenverarbeitung bis zum offiziellen Release ändern. Wir behalten uns vor, diese
+    Datenschutzerklärung entsprechend anzupassen.
+  </p>
+  <p>
+    Bei wesentlichen Änderungen — insbesondere bei neuen Verarbeitungszwecken oder Kategorien
+    personenbezogener Daten — werden registrierte Nutzer per E-Mail informiert (Art. 13 Abs. 3 DSGVO).
+    Die jeweils aktuelle Version ist unter <a href="/datenschutz">safe2gether.de/datenschutz</a>
+    sowie in der App abrufbar. Das Datum oben auf dieser Seite gibt den Stand der letzten Änderung an.
   </p>
 </div>
 {% endblock %}

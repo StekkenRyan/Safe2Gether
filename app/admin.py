@@ -2,8 +2,10 @@
 import base64
 import functools
 import io
+import json
 import os
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -14,6 +16,7 @@ from flask import Blueprint, jsonify, redirect, render_template, request, sessio
 from sqlalchemy import text
 
 from .db import db
+from .notifications import send_push_sync
 from .redis_keys import CONTACT_INVITE, GEO_CELL, HB
 
 _MIN_USER_CELL_COUNT = 5  # DSGVO: omit cells with fewer active users from the map
@@ -570,3 +573,140 @@ def totp_setup_post():
         verified=False,
         error='Ungültiger Code — bitte erneut versuchen.',
     ), 400
+
+
+# ── Test-Push dashboard ───────────────────────────────────────────────────────
+
+_PUSH_TYPES = ('nearby_alert', 'contact_alarm', 'timer_checkin_request', 'responder_added')
+
+
+def _build_push_payload(push_type: str) -> dict:
+    now = datetime.now(timezone.utc).isoformat()
+    rand_id = str(uuid.uuid4())
+    if push_type == 'nearby_alert':
+        return {
+            'aps': {
+                'alert': {'title': '⚠️ Test-Alarm', 'body': 'Dies ist ein Test-Nearby-Alert.'},
+                'sound': 'default',
+                'category': 'NEARBY_ALERT',
+            },
+            'type': 'nearby_alert',
+            'alarm_id': rand_id,
+            'triggered_at': now,
+            'bearing_degrees': 45.0,
+            'distance_meters': 350.0,
+            'responder_count': 0,
+            'alert_type': 'panic',
+        }
+    if push_type == 'contact_alarm':
+        return {
+            'aps': {
+                'alert': {
+                    'title': 'Kontakt braucht Hilfe',
+                    'body': 'Ein Kontakt hat einen Alarm ausgelöst.',
+                },
+                'sound': 'default',
+                'category': 'CONTACT_ALERT',
+            },
+            'type': 'alarm_update',
+            'event': 'contact_alarm_triggered',
+            'alarm_id': rand_id,
+        }
+    if push_type == 'timer_checkin_request':
+        return {
+            'aps': {
+                'alert': {
+                    'title': 'Alles okay?',
+                    'body': 'Bitte melde dich — dein Timer läuft bald ab.',
+                },
+                'sound': 'default',
+            },
+            'type': 'timer_checkin_request',
+            'timer_id': rand_id,
+        }
+    # responder_added — silent background push
+    return {
+        'aps': {'content-available': 1},
+        'type': 'alarm_update',
+        'event': 'responder_added',
+        'alarm_id': rand_id,
+    }
+
+
+_DEVICE_LIST_SQL = """
+    SELECT id, email, apns_device_token, apns_environment, created_at
+    FROM users
+    WHERE apns_device_token IS NOT NULL
+    ORDER BY created_at DESC
+    LIMIT 200
+"""
+
+
+def _push_env_guard():
+    """Return a 403 response if running in production, else None."""
+    if _ENV == 'prod':
+        return (
+            '<h1>403 — Nicht verfügbar</h1>'
+            '<p>Test-Pushes sind in der Produktionsumgebung deaktiviert (DSGVO).<br>'
+            'Nur in <code>ENV=dev</code> nutzbar.</p>'
+        ), 403
+    return None
+
+
+@bp.get('/push')
+@require_admin
+def push_dashboard():
+    if (guard := _push_env_guard()):
+        return guard
+    devices = _q_all(_DEVICE_LIST_SQL)
+    push_result = session.pop('push_result', None)
+    return render_template(
+        'admin/push.html',
+        devices=devices,
+        push_types=_PUSH_TYPES,
+        push_result=push_result,
+    )
+
+
+@bp.post('/push')
+@require_admin
+def push_send():
+    if (guard := _push_env_guard()):
+        return guard
+
+    user_id = request.form.get('user_id', '').strip()
+    push_type = request.form.get('push_type', 'nearby_alert')
+    custom_json = request.form.get('custom_json', '').strip()
+
+    if not user_id:
+        session['push_result'] = {'ok': False, 'status': 0, 'body': 'Kein Gerät ausgewählt.'}
+        return redirect(url_for('admin.push_dashboard'))
+
+    # Token-Lookup server-seitig — Token verlässt nie den Browser
+    rows = _q_all(
+        'SELECT apns_device_token, apns_environment FROM users '
+        'WHERE id = :id AND apns_device_token IS NOT NULL',
+        {'id': user_id},
+    )
+    if not rows:
+        session['push_result'] = {'ok': False, 'status': 0, 'body': 'Gerät nicht gefunden'}
+        return redirect(url_for('admin.push_dashboard'))
+
+    device_token = rows[0]['apns_device_token']
+    environment = rows[0]['apns_environment'] or 'sandbox'
+
+    if push_type not in _PUSH_TYPES:
+        push_type = 'nearby_alert'
+
+    if custom_json:
+        try:
+            payload = json.loads(custom_json)
+        except json.JSONDecodeError as exc:
+            session['push_result'] = {'ok': False, 'status': 0, 'body': f'Ungültiges JSON: {exc}'}
+            return redirect(url_for('admin.push_dashboard'))
+    else:
+        payload = _build_push_payload(push_type)
+
+    status, body = send_push_sync(device_token, payload, environment)
+    session['push_result'] = {'ok': status == 200, 'status': status, 'body': body}
+    return redirect(url_for('admin.push_dashboard'))

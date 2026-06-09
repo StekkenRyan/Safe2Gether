@@ -1,9 +1,10 @@
 """Public-facing web pages: landing, Datenschutz, Impressum."""
-from datetime import date
-
 from flask import Blueprint, render_template
 
 bp = Blueprint('web', __name__, url_prefix='/')
+
+# Manuell aktualisieren wenn sich der Inhalt der Datenschutzerklärung ändert.
+_DATENSCHUTZ_STAND = '09.06.2026'
 
 
 @bp.get('/')
@@ -13,7 +14,7 @@ def index():
 
 @bp.get('/datenschutz')
 def datenschutz():
-    return render_template('datenschutz.html', date=date.today().strftime('%d.%m.%Y'))
+    return render_template('datenschutz.html', date=_DATENSCHUTZ_STAND)
 
 
 @bp.get('/impressum')

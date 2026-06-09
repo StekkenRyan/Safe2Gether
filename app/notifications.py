@@ -205,6 +205,54 @@ def send_alarm_update(
     ).start()
 
 
+def send_push_sync(device_token: str, payload: dict, environment: str) -> tuple[int, str]:
+    """Synchronous APNs send — returns (http_status, apns_response_body).
+
+    Unlike the fire-and-forget helpers above, this blocks until APNs responds.
+    Used by the admin test-push dashboard where immediate feedback is required.
+    """
+    key_path = os.environ.get('APNS_KEY_PATH', '')
+    key_id = os.environ.get('APNS_KEY_ID', '')
+    team_id = os.environ.get('APNS_TEAM_ID', '')
+    bundle_id = os.environ.get('APNS_BUNDLE_ID', 'com.safe2gether.app')
+
+    if not all([key_path, key_id, team_id]):
+        return 0, 'APNs nicht konfiguriert (APNS_KEY_PATH / APNS_KEY_ID / APNS_TEAM_ID fehlen)'
+
+    try:
+        import jwt as pyjwt
+
+        private_key = _load_private_key(key_path)
+        apns_token = pyjwt.encode(
+            {'iss': team_id, 'iat': int(time.time())},
+            private_key,
+            algorithm='ES256',
+            headers={'kid': key_id},
+        )
+        host = _APNS_SANDBOX_HOST if environment == 'sandbox' else _APNS_PROD_HOST
+        url = f'{host}/3/device/{device_token}'
+
+        aps = payload.get('aps', {})
+        is_background = aps.get('content-available') == 1 and 'alert' not in aps
+        push_type_header = 'background' if is_background else 'alert'
+
+        with httpx.Client(http2=True) as client:
+            resp = client.post(
+                url,
+                json=payload,
+                headers={
+                    'authorization': f'bearer {apns_token}',
+                    'apns-topic': bundle_id,
+                    'apns-push-type': push_type_header,
+                    'apns-priority': '5' if is_background else '10',
+                },
+                timeout=10,
+            )
+            return resp.status_code, resp.text or 'OK'
+    except Exception as exc:
+        return 0, str(exc)
+
+
 # ─── Banner formatting helpers ───────────────────────────────────────────────
 
 def _compass_label(bearing_degrees: float) -> str:
