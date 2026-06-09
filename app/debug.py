@@ -40,7 +40,7 @@ def _redis() -> redis_lib.Redis:
     )
 
 
-def _ensure_test_user() -> User:
+def ensure_test_user() -> User:
     """Fetch test user by fixed UUID; create it if the DB is fresh (e.g. tests)."""
     user = db.session.get(User, _TEST_USER_ID)
     if user is None:
@@ -54,7 +54,7 @@ def _ensure_test_user() -> User:
     return user
 
 
-def _create_debug_alarm(test_user: User) -> Alarm:
+def create_debug_alarm(test_user: User) -> Alarm:
     alarm = Alarm(
         id=str(uuid.uuid4()),
         user_id=test_user.id,
@@ -89,8 +89,8 @@ def _caller_bearing_distance() -> tuple[float, float]:
 @bp.post('/inject-nearby-alert')
 @require_auth
 def inject_nearby_alert():
-    test_user = _ensure_test_user()
-    alarm = _create_debug_alarm(test_user)
+    test_user = ensure_test_user()
+    alarm = create_debug_alarm(test_user)
     bearing, distance = _caller_bearing_distance()
 
     triggered_at = alarm.triggered_at.isoformat() + 'Z' if alarm.triggered_at else ''
@@ -108,8 +108,8 @@ def inject_nearby_alert():
 @bp.post('/inject-contact-alarm')
 @require_auth
 def inject_contact_alarm():
-    test_user = _ensure_test_user()
-    alarm = _create_debug_alarm(test_user)
+    test_user = ensure_test_user()
+    alarm = create_debug_alarm(test_user)
 
     logger.info('debug: inject_contact_alarm alarm=%s caller=%s', alarm.id, g.user_id)
     return jsonify({'alarm_id': alarm.id}), 201

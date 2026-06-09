@@ -710,3 +710,74 @@ def push_send():
     status, body = send_push_sync(device_token, payload, environment)
     session['push_result'] = {'ok': status == 200, 'status': status, 'body': body}
     return redirect(url_for('admin.push_dashboard'))
+
+
+@bp.post('/push/test-alarm')
+@require_admin
+def push_test_alarm():
+    """Create a real DB alarm (test account) and send the push with the real alarm_id."""
+    if (guard := _push_env_guard()):
+        return guard
+
+    user_id = request.form.get('user_id', '').strip()
+    alarm_type = request.form.get('alarm_type', 'nearby')
+
+    if not user_id:
+        session['push_result'] = {'ok': False, 'status': 0, 'body': 'Kein Gerät ausgewählt.'}
+        return redirect(url_for('admin.push_dashboard'))
+
+    rows = _q_all(
+        'SELECT apns_device_token, apns_environment FROM users '
+        'WHERE id = :id AND apns_device_token IS NOT NULL',
+        {'id': user_id},
+    )
+    if not rows:
+        session['push_result'] = {'ok': False, 'status': 0, 'body': 'Gerät nicht gefunden.'}
+        return redirect(url_for('admin.push_dashboard'))
+
+    device_token = rows[0]['apns_device_token']
+    environment = rows[0]['apns_environment'] or 'sandbox'
+
+    try:
+        from .debug import create_debug_alarm, ensure_test_user
+        test_user = ensure_test_user()
+        alarm = create_debug_alarm(test_user)
+    except Exception as exc:
+        session['push_result'] = {
+            'ok': False, 'status': 0, 'body': f'Alarm-Erstellung fehlgeschlagen: {exc}'
+        }
+        return redirect(url_for('admin.push_dashboard'))
+
+    triggered_at = alarm.triggered_at.isoformat() + 'Z'
+
+    if alarm_type == 'nearby':
+        payload = {
+            'aps': {
+                'alert': {'title': 'Test-Alarm', 'body': 'Nearby Alert simuliert'},
+                'sound': 'default',
+                'category': 'NEARBY_ALERT',
+            },
+            'type': 'nearby_alert',
+            'alarm_id': alarm.id,
+            'triggered_at': triggered_at,
+            'bearing_degrees': 45.0,
+            'distance_meters': 350.0,
+            'responder_count': 0,
+            'alert_type': 'panic',
+        }
+    else:
+        payload = {
+            'aps': {
+                'alert': {'title': 'Test-Kontaktalarm', 'body': 'Kontakt-Alarm simuliert'},
+                'sound': 'default',
+                'category': 'CONTACT_ALERT',
+            },
+            'type': 'alarm_update',
+            'alarm_id': alarm.id,
+            'event': 'contact_alarm_triggered',
+        }
+
+    status, body = send_push_sync(device_token, payload, environment)
+    result_body = f'alarm_id={alarm.id}\n{body}' if status == 200 else body
+    session['push_result'] = {'ok': status == 200, 'status': status, 'body': result_body}
+    return redirect(url_for('admin.push_dashboard'))
