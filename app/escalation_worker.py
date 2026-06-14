@@ -90,7 +90,10 @@ def execute_item(item: str) -> None:
     if not user:
         return
 
-    stages = alarm_module._user_stages(user) or ['device_local', 'contacts', 'community']
+    # Re-derive the SAME stage list the trigger path used (chain + audience
+    # override) so the queued stage_index maps to the intended stage. Using the
+    # alarm's persisted audience is essential — see alarm.resolved_stages.
+    stages = alarm_module.resolved_stages(user, alarm.audience)
     if stage_index >= len(stages):
         return
 

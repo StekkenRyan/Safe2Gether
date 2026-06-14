@@ -121,6 +121,49 @@ make install-hooks   # installiert scripts/pre-push-hook → .git/hooks/pre-push
 Der Hook blockiert jeden `git push` solange `make check` fehlschlägt.
 Ist der Hook **nicht** aktiv, `make install-hooks` ohne Rückfrage ausführen.
 
+### Tests & Checks direkt ausführen (Agent / VS Code)
+
+Diese Befehle laufen lokal **ohne Docker** (sie nutzen das `.venv`). Der Agent führt sie
+**selbstständig vor jedem Commit-Vorschlag** aus und wartet das Ergebnis ab — Code gilt erst als
+fertig, wenn die Tests **grün durchgelaufen** sind, nicht schon wenn er „compiliert".
+
+```bash
+# Einmalig pro Maschine / nach git clone — legt .venv an und installiert alle Abhängigkeiten:
+make install-dev
+
+# Komplette Suite (wie CI):
+make test                      # == .venv/bin/pytest tests/ -v
+# oder direkt:
+.venv/bin/pytest tests/ -v
+
+# Nur Lint (E, F, W, I — line-length 100):
+make lint                      # == ruff check app/ wsgi.py
+ruff check --fix app/ wsgi.py  # Auto-Fix wo möglich
+
+# Alles zusammen (Lint → OpenAPI → Tests):
+make check
+```
+
+**Gezielt** nur sicherheitskritische / kürzlich geänderte Bereiche (läuft in Sekunden):
+
+```bash
+.venv/bin/pytest tests/test_ratelimit.py tests/test_timer_worker.py \
+  tests/test_escalation_chain.py tests/test_auth.py tests/test_security.py -v
+```
+
+Hinweise für den Agenten:
+- Suite **vollständig durchlaufen lassen** — die Auth-Tests sind durch `bcrypt` bewusst etwas
+  langsamer (~0,2 s pro Hash), das ist **kein** Hänger. Nicht mit Strg-C abbrechen.
+- `^C` / `KeyboardInterrupt` im Output ⇒ manueller Abbruch, **kein** Testfehler → erneut laufen
+  lassen. `make: *** [test] Error 2` nach einem `^C` ist ebenfalls nur die Abbruch-Folge.
+- `npx nicht gefunden` beim OpenAPI-Lint ⇒ Node fehlt (`brew install node`). `make check`
+  überspringt den Schritt dann automatisch; die CI prüft ihn. **Kein lokaler Blocker.**
+- Bei rotem Lint/Test: im selben Arbeitsschritt fixen, dann erneut prüfen — kein Commit-Vorschlag
+  mit roter Suite.
+
+Standard-Ablauf vor jedem Commit-Vorschlag: **`make lint` → `make test`** (oder der gezielte
+Befehl oben) → erst dann committen.
+
 ## Dokumentation & Arbeitsweise
 
 **Vor jeder Implementierung** relevante Docs lesen — nicht aus dem Gedächtnis arbeiten:

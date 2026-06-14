@@ -227,6 +227,22 @@ def _stages_for_audience(base_stages: list[str], audience: str) -> list[str]:
     return base_stages
 
 
+def resolved_stages(user: User, audience: str) -> list[str]:
+    """The definitive, ordered escalation stages for an alarm.
+
+    Single source of truth shared by the trigger path (`trigger_alarm`) and the
+    escalation worker (`escalation_worker.execute_item`). Both MUST derive the
+    stage list the same way, otherwise the queued ``<alarm_id>:<index>`` members
+    map to the wrong stage once the audience filter drops an earlier element —
+    e.g. an `audience='community'` alarm would otherwise fan out to the user's
+    personal contacts. Applies: user chain → audience override → guaranteed
+    non-empty first stage.
+    """
+    base_stages = _user_stages(user) or ['device_local', 'contacts', 'community']
+    stages = _stages_for_audience(base_stages, audience)
+    return stages or ['device_local']
+
+
 # ─── Create alarm ─────────────────────────────────────────────────────────────
 
 @bp.post('')
@@ -276,11 +292,7 @@ def trigger_alarm():
 
     alarm_id = str(uuid.uuid4())  # Always server-generated — no client-provided IDs
 
-    base_stages = _user_stages(user) or ['device_local', 'contacts', 'community']
-    stages = _stages_for_audience(base_stages, audience)
-    # Guarantee at least device_local so the alarm always has a valid first stage
-    if not stages:
-        stages = ['device_local']
+    stages = resolved_stages(user, audience)
     delay = user.escalation_delay_seconds
 
     alarm = Alarm(

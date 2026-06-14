@@ -244,6 +244,44 @@ def test_deleted_user_cannot_update_device_token(client, auth_user, auth_headers
     assert resp.status_code == 404
 
 
+def test_deactivated_user_cannot_update_geohash(client, app, auth_user, auth_headers):
+    """A4: deactivation is enforced centrally in require_auth, so even an
+    endpoint that doesn't separately load the user (PUT /geohash) rejects a
+    deactivated account immediately rather than honouring its access token."""
+    from app.db import db
+    from app.models import User
+
+    user, _ = auth_user
+    with app.app_context():
+        u = db.session.get(User, user.id)
+        u.is_active = False
+        db.session.commit()
+
+    resp = client.put('/api/v1/geohash', json={
+        'geohash': '871f1d48dffffff', 'status': 'online',
+    }, headers=auth_headers)
+    assert resp.status_code == 404
+
+
+def test_refresh_rejected_for_deactivated_user(client, app, auth_user, mock_redis):
+    """A4: a refresh token belonging to a deactivated account cannot mint new
+    access tokens."""
+    from app.db import db
+    from app.models import User
+    from app.token import create_refresh_token
+
+    user, _ = auth_user
+    refresh_token = create_refresh_token(user.id)
+    with app.app_context():
+        u = db.session.get(User, user.id)
+        u.is_active = False
+        db.session.commit()
+
+    resp = client.post('/api/v1/auth/refresh', json={'refresh_token': refresh_token})
+    assert resp.status_code == 401
+    assert resp.get_json()['code'] == 'ACCOUNT_INACTIVE'
+
+
 def test_refresh_token_revoked_on_deletion(client, auth_user, mock_redis):
     """Providing refresh_token on DELETE /me must invalidate it immediately."""
     from app.token import create_refresh_token, decode_refresh_token

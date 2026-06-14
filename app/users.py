@@ -93,8 +93,8 @@ def update_me():
 def delete_me():
     """GDPR Art. 17 — soft-delete with immediate PII anonymisation.
 
-    Accepts an optional `refresh_token` body param; if provided, the token is
-    revoked immediately so the deleted account cannot obtain new access tokens.
+    Every refresh token for the account is revoked immediately so no lingering
+    session can obtain new access tokens during the soft-delete grace period.
     """
     if g.user_id == _DEBUG_TEST_USER_ID:
         return jsonify({'error': 'Forbidden', 'code': 'CANNOT_DELETE_TEST_USER'}), 403
@@ -103,11 +103,11 @@ def delete_me():
     if not user:
         return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
 
-    data = request.get_json(silent=True) or {}
-    refresh_token = data.get('refresh_token')
-    if refresh_token:
-        from .token import revoke_refresh_token
-        revoke_refresh_token(refresh_token)
+    # Revoke every refresh token for this user — not just the optionally
+    # provided one — so no lingering session can mint new access tokens during
+    # the soft-delete grace period.
+    from .token import revoke_all_refresh_tokens
+    revoke_all_refresh_tokens(g.user_id)
 
     deletion_at = datetime.now(timezone.utc) + timedelta(days=_DELETION_GRACE_DAYS)
 

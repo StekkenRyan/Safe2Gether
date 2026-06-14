@@ -14,8 +14,32 @@ services:
     environment:
       FLASK_DEBUG: "0"
       ENV: prod
-    command: gunicorn -w 2 -b 0.0.0.0:5000 --worker-class eventlet --access-logfile - wsgi:app
+      # Background workers run in the dedicated `worker` service below, not in
+      # the web workers (avoids duplicate timer escalations + eventlet hazards).
+      RUN_WORKERS: "0"
+    # gthread (not eventlet): the app is a plain blocking WSGI service with a
+    # blocking psycopg2 driver — threads are the safe match. APNs fan-out is
+    # already offloaded to background threads inside the request.
+    command: gunicorn -w 2 --threads 4 -k gthread -b 0.0.0.0:5000 --access-logfile - wsgi:app
     ports: !reset []  # cloudflared handles all ingress; no direct port exposure
+    restart: always
+
+  # Dedicated single-process worker: escalation queue + Dead-Man's-Switch timer.
+  worker:
+    build: .
+    env_file:
+      - .env
+    environment:
+      FLASK_APP: app
+      FLASK_DEBUG: "0"
+      ENV: prod
+      TZ: Europe/Berlin
+    volumes:
+      - /etc/safe2gether/apns_key.p8:/run/secrets/apns_key.p8:ro
+    command: python -m app.worker
+    depends_on:
+      - redis
+      - postgres
     restart: always
 
   redis:

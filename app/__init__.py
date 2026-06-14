@@ -55,6 +55,8 @@ def create_app(test_config: dict | None = None) -> Flask:
 
     testing = app.config.get('TESTING', False)
     app.config.setdefault('SESSION_COOKIE_SECURE', not testing)
+    # Rate limiting is disabled under tests by default (individual tests opt in).
+    app.config.setdefault('RATELIMIT_ENABLED', not testing)
 
     _validate_config(app)
 
@@ -117,11 +119,18 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .safety_timer import bp as safety_timer_bp
     app.register_blueprint(safety_timer_bp)
 
-    from .escalation_worker import start_worker
-    start_worker(app)
+    # Background workers (escalation + Dead-Man's-Switch timer). In production
+    # these run in a dedicated single process (see app/worker.py) so they are
+    # not duplicated across gunicorn web workers and don't run inside the web
+    # worker class. The web tier sets RUN_WORKERS=0; the worker process does not.
+    # Default '1' keeps the single-process dev setup unchanged. `start_worker`
+    # additionally no-ops under TESTING.
+    if os.environ.get('RUN_WORKERS', '1') == '1':
+        from .escalation_worker import start_worker
+        start_worker(app)
 
-    from .timer_worker import start_worker as start_timer_worker
-    start_timer_worker(app)
+        from .timer_worker import start_worker as start_timer_worker
+        start_timer_worker(app)
 
     @app.template_filter('dt')
     def _dt_filter(value, fmt: str = '%d.%m.%Y') -> str:

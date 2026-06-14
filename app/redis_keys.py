@@ -34,3 +34,10 @@ ESCALATION_QUEUE = f'{_P}escalation:queue'
 
 # Contact invite tokens (one-time, 24 h TTL)
 CONTACT_INVITE = f'{_P}contact_invite:'  # + token  →  inviter user_id
+
+# Per-user set of currently-valid refresh-token JTIs. Lets us revoke every
+# session for a user in one shot (account deletion, reuse detection).
+REFRESH_USER_JTIS = f'{_P}refresh_user_jtis:'  # + user_id  →  SET of jti
+
+# Generic request rate limiting (fixed-window counter per scope + client IP).
+RATE_LIMIT = f'{_P}ratelimit:'  # + "<scope>:<client_ip>"  →  counter (with TTL)

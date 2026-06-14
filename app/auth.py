@@ -22,6 +22,7 @@ from jwt.algorithms import RSAAlgorithm
 from . import mail
 from .db import db
 from .models import PasswordReset, User
+from .ratelimit import rate_limit
 from .redis_keys import JWKS_APPLE, JWKS_GOOGLE
 from .token import (
     ACCESS_TTL,
@@ -29,7 +30,9 @@ from .token import (
     create_refresh_token,
     decode_refresh_token,
     require_auth,
+    revoke_all_refresh_tokens,
     revoke_refresh_token,
+    verify_refresh_signature,
 )
 
 logger = logging.getLogger(__name__)
@@ -137,6 +140,7 @@ def _auth_response(user: User) -> tuple:
 
 
 @bp.post('/signin')
+@rate_limit(limit=10, window_seconds=60, scope='signin')
 def signin():
     """Sign in or create account with Apple, Google, or email/password."""
     data = request.get_json(silent=True) or {}
@@ -212,7 +216,16 @@ def signin():
 
 
 @bp.post('/refresh')
+@rate_limit(limit=30, window_seconds=60, scope='refresh')
 def refresh():
+    """Rotate the refresh token and mint a fresh access token.
+
+    Each successful refresh invalidates the presented refresh token and issues a
+    brand-new pair (rotation), so a stolen refresh token is usable at most once.
+    If a validly-signed refresh token is presented whose JTI is no longer active
+    (i.e. it was already rotated/revoked), that is treated as token reuse and the
+    user's entire refresh-token family is revoked.
+    """
     data = request.get_json(silent=True) or {}
     refresh_token = data.get('refresh_token')
     if not refresh_token:
@@ -220,9 +233,28 @@ def refresh():
 
     user_id = decode_refresh_token(refresh_token)
     if not user_id:
+        # Distinguish a validly-signed-but-unknown JTI (replay of a rotated or
+        # revoked token) from outright garbage. On suspected reuse, defensively
+        # revoke every refresh token for that user.
+        claims = verify_refresh_signature(refresh_token)
+        if claims and claims.get('sub'):
+            revoke_all_refresh_tokens(claims['sub'])
         return jsonify({'error': 'Unauthorized', 'code': 'INVALID_REFRESH_TOKEN'}), 401
 
-    return jsonify({'access_token': create_access_token(user_id), 'expires_in': ACCESS_TTL}), 200
+    # Account must still exist and be active to obtain new tokens.
+    user = db.session.get(User, user_id)
+    if not user or not user.is_active:
+        revoke_all_refresh_tokens(user_id)
+        return jsonify({'error': 'Unauthorized', 'code': 'ACCOUNT_INACTIVE'}), 401
+
+    # Rotate: invalidate the presented token, issue a fresh pair.
+    revoke_refresh_token(refresh_token)
+    new_refresh_token = create_refresh_token(user_id)
+    return jsonify({
+        'access_token': create_access_token(user_id),
+        'refresh_token': new_refresh_token,
+        'expires_in': ACCESS_TTL,
+    }), 200
 
 
 @bp.post('/logout')
@@ -286,6 +318,7 @@ def _send_password_reset_email(to_email: str, reset_link: str) -> None:
 
 
 @bp.post('/password-reset/request')
+@rate_limit(limit=5, window_seconds=3600, scope='pwreset_req')
 def password_reset_request():
     data = request.get_json(silent=True) or {}
     email = (data.get('email') or '').lower().strip()
@@ -316,6 +349,7 @@ def password_reset_request():
 
 
 @bp.post('/password-reset/confirm')
+@rate_limit(limit=10, window_seconds=600, scope='pwreset_confirm')
 def password_reset_confirm():
     data = request.get_json(silent=True) or {}
     token = data.get('token') or ''

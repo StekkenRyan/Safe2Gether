@@ -20,7 +20,9 @@ def _check_db() -> str:
 
 def _check_redis() -> str:
     try:
-        redis_url = current_app.config.get('REDIS_URL') or os.environ.get('REDIS_URL', 'redis://localhost:6379/0')
+        redis_url = current_app.config.get('REDIS_URL') or os.environ.get(
+            'REDIS_URL', 'redis://localhost:6379/0'
+        )
         r = redis_lib.from_url(redis_url, socket_connect_timeout=2)
         r.ping()
         return 'ok'

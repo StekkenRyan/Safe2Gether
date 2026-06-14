@@ -130,6 +130,59 @@ def test_contacts_plus_community_stage_persists(
     assert refreshed.get_json()['escalation_stage'] == 'contacts+community'
 
 
+def test_community_audience_escalates_to_community_not_contacts(
+    client, app, auth_headers, mock_redis
+):
+    """Regression (A3): an `audience='community'` alarm must escalate to the
+    community stage, never to the user's personal contacts.
+
+    Default chain is [device_local, contacts, community]; with audience filtering
+    the resolved chain is [device_local, community]. The queued stage index 1 must
+    therefore resolve to 'community' in the worker — before the fix the worker
+    re-derived the *unfiltered* chain and ran 'contacts' instead.
+    """
+    client.patch('/api/v1/escalation', json={
+        'escalation_order': ['device_local', 'contacts', 'community'],
+        'delay_seconds_between_stages': 0,
+    }, headers=auth_headers)
+
+    resp = client.post('/api/v1/alarms', json={
+        'trigger_source': 'in_app',
+        'audience': 'community',
+        'geohash_snapshot': '871f1d48dffffff',
+    }, headers=auth_headers)
+    assert resp.status_code == 201
+    alarm_id = resp.get_json()['id']
+
+    items = pop_due_items(now_ts=time.time() + 3600)
+    mock_redis.zadd(ESCALATION_QUEUE, {item: time.time() - 1 for item in items})
+    drain_due(app)
+
+    refreshed = client.get(f'/api/v1/alarms/{alarm_id}', headers=auth_headers)
+    assert refreshed.get_json()['escalation_stage'] == 'community'
+
+
+def test_contacts_audience_escalates_to_contacts(client, app, auth_headers, mock_redis):
+    """Counterpart: audience='contacts' resolves stage 1 to 'contacts'."""
+    client.patch('/api/v1/escalation', json={
+        'escalation_order': ['device_local', 'contacts', 'community'],
+        'delay_seconds_between_stages': 0,
+    }, headers=auth_headers)
+
+    alarm_id = client.post('/api/v1/alarms', json={
+        'trigger_source': 'in_app',
+        'audience': 'contacts',
+        'geohash_snapshot': '871f1d48dffffff',
+    }, headers=auth_headers).get_json()['id']
+
+    items = pop_due_items(now_ts=time.time() + 3600)
+    mock_redis.zadd(ESCALATION_QUEUE, {item: time.time() - 1 for item in items})
+    drain_due(app)
+
+    refreshed = client.get(f'/api/v1/alarms/{alarm_id}', headers=auth_headers)
+    assert refreshed.get_json()['escalation_stage'] == 'contacts'
+
+
 def test_short_chain_queues_nothing_extra(client, auth_headers, mock_redis):
     """A single-stage chain runs inline and leaves the queue empty."""
     client.patch('/api/v1/escalation', json={

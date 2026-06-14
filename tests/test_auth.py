@@ -95,6 +95,42 @@ def test_refresh_invalid_token(client):
     assert resp.get_json()['code'] == 'INVALID_REFRESH_TOKEN'
 
 
+def test_refresh_rotates_token(client, auth_user, mock_redis):
+    """A5: each refresh returns a NEW refresh token and the old one stops working."""
+    user, _ = auth_user
+    from app.token import create_refresh_token
+    old = create_refresh_token(user.id)
+
+    resp = client.post('/api/v1/auth/refresh', json={'refresh_token': old})
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['access_token']
+    assert data['refresh_token'] and data['refresh_token'] != old
+
+    # The rotated-out token is no longer usable.
+    reuse = client.post('/api/v1/auth/refresh', json={'refresh_token': old})
+    assert reuse.status_code == 401
+
+
+def test_refresh_reuse_revokes_whole_family(client, auth_user, mock_redis):
+    """A5: replaying a rotated-out refresh token revokes every session for the
+    user (reuse detection) — including the freshly issued token."""
+    user, _ = auth_user
+    from app.token import create_refresh_token, decode_refresh_token
+    old = create_refresh_token(user.id)
+
+    new = client.post(
+        '/api/v1/auth/refresh', json={'refresh_token': old}
+    ).get_json()['refresh_token']
+    assert decode_refresh_token(new) == user.id  # valid right after rotation
+
+    # Replay the old token → reuse detected → nuke family.
+    client.post('/api/v1/auth/refresh', json={'refresh_token': old})
+
+    # The new token is now also dead.
+    assert decode_refresh_token(new) is None
+
+
 def test_refresh_missing_token(client):
     resp = client.post('/api/v1/auth/refresh', json={})
     assert resp.status_code == 401

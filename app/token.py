@@ -8,7 +8,7 @@ import jwt
 import redis as redis_lib
 from flask import g, jsonify, request
 
-from .redis_keys import REFRESH_JTI
+from .redis_keys import REFRESH_JTI, REFRESH_USER_JTIS
 
 _ALGORITHM = 'HS256'
 ACCESS_TTL = int(os.environ.get('JWT_ACCESS_TOKEN_EXPIRES', 3600))
@@ -55,7 +55,14 @@ def create_refresh_token(user_id: str) -> str:
     }
     token = jwt.encode(payload, _secret(), algorithm=_ALGORITHM)
     try:
-        _redis().setex(f'{REFRESH_JTI}{jti}', _REFRESH_TTL, user_id)
+        r = _redis()
+        pipe = r.pipeline()
+        pipe.setex(f'{REFRESH_JTI}{jti}', _REFRESH_TTL, user_id)
+        # Track the JTI in a per-user set so every session can be revoked at
+        # once (account deletion / refresh-token reuse detection).
+        pipe.sadd(f'{REFRESH_USER_JTIS}{user_id}', jti)
+        pipe.expire(f'{REFRESH_USER_JTIS}{user_id}', _REFRESH_TTL)
+        pipe.execute()
     except redis_lib.RedisError:
         # If Redis is temporarily unavailable, the token still works until it's
         # used — at that point the missing JTI will cause a 401, forcing re-login.
@@ -90,15 +97,53 @@ def decode_refresh_token(token: str) -> str | None:
     return payload['sub']
 
 
+def verify_refresh_signature(token: str) -> dict | None:
+    """Return the decoded payload if the token is a structurally-valid,
+    non-expired refresh token — WITHOUT checking the JTI store.
+
+    Used for reuse detection: a validly-signed refresh token whose JTI is no
+    longer active indicates a rotated/revoked token being replayed.
+    """
+    try:
+        payload = jwt.decode(token, _secret(), algorithms=[_ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+    if payload.get('type') != 'refresh':
+        return None
+    return payload
+
+
 def revoke_refresh_token(token: str) -> None:
-    """Delete the refresh token's JTI from Redis (logout)."""
+    """Delete the refresh token's JTI from Redis (logout / rotation)."""
     try:
         payload = jwt.decode(token, _secret(), algorithms=[_ALGORITHM],
                              options={'verify_exp': False})
         jti = payload.get('jti')
         if jti and payload.get('type') == 'refresh':
-            _redis().delete(f'{REFRESH_JTI}{jti}')
+            r = _redis()
+            pipe = r.pipeline()
+            pipe.delete(f'{REFRESH_JTI}{jti}')
+            sub = payload.get('sub')
+            if sub:
+                pipe.srem(f'{REFRESH_USER_JTIS}{sub}', jti)
+            pipe.execute()
     except (jwt.PyJWTError, redis_lib.RedisError):
+        pass
+
+
+def revoke_all_refresh_tokens(user_id: str) -> None:
+    """Invalidate every refresh token issued to a user (account deletion or
+    suspected token reuse). Idempotent and fail-safe on Redis errors."""
+    try:
+        r = _redis()
+        set_key = f'{REFRESH_USER_JTIS}{user_id}'
+        jtis = r.smembers(set_key)
+        pipe = r.pipeline()
+        for jti in jtis:
+            pipe.delete(f'{REFRESH_JTI}{jti}')
+        pipe.delete(set_key)
+        pipe.execute()
+    except redis_lib.RedisError:
         pass
 
 
@@ -126,6 +171,22 @@ def require_auth(f):
         if payload.get('type') != 'access':
             return jsonify({'error': 'Unauthorized', 'code': 'WRONG_TOKEN_TYPE'}), 401
 
-        g.user_id = payload['sub']
+        user_id = payload['sub']
+
+        # Centralised account-state enforcement. A valid signature alone is not
+        # enough — the account must still exist and be active. This closes the
+        # gap where endpoints that don't separately load the user (e.g.
+        # PUT /geohash) would otherwise honour tokens belonging to a deleted or
+        # deactivated account until the short-lived access token expired.
+        # Returns 404 (USER_NOT_FOUND) to match the convention already used by
+        # the per-endpoint checks and the existing test-suite contract.
+        from .db import db
+        from .models import User
+        user = db.session.get(User, user_id)
+        if user is None or not user.is_active:
+            return jsonify({'error': 'Not Found', 'code': 'USER_NOT_FOUND'}), 404
+
+        g.user_id = user_id
+        g.user = user
         return f(*args, **kwargs)
     return decorated
