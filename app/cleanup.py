@@ -5,8 +5,11 @@ Register Flask CLI commands that a cron job calls daily:
   flask cleanup alarms   → purge alarm records past 30-day retention
   flask cleanup reputation → purge reputation actions past 30-day retention
 
+  flask cleanup errors    → purge anonymous error reports past 90-day retention
+
 Cron example (4:00 AM daily):
-  0 4 * * * cd /app && flask cleanup users && flask cleanup alarms && flask cleanup reputation
+  0 4 * * * cd /app && flask cleanup users && flask cleanup alarms \
+            && flask cleanup reputation && flask cleanup errors
 """
 import logging
 import os
@@ -92,3 +95,19 @@ def register_commands(app: Flask) -> None:
         db.session.commit()
         click.echo(f'Deleted {result.rowcount} expired reputation action(s).')
         logger.info('cleanup_reputation: deleted %d records', result.rowcount)
+
+    @cleanup.command('errors')
+    def cleanup_errors():
+        """Delete anonymous error reports past their 90-day retention period."""
+        from datetime import datetime, timezone
+
+        from sqlalchemy import delete as sa_delete
+
+        from .models import ErrorEvent
+        now = datetime.now(timezone.utc)
+        result = db.session.execute(
+            sa_delete(ErrorEvent).where(ErrorEvent.auto_delete_at <= now)
+        )
+        db.session.commit()
+        click.echo(f'Deleted {result.rowcount} expired error event(s).')
+        logger.info('cleanup_errors: deleted %d records', result.rowcount)

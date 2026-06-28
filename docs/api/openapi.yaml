@@ -43,6 +43,8 @@ tags:
     description: Nearby Alerting — coarse location cell updates
   - name: heartbeat
     description: Keep-alive signal (v1.0 base; foundation for v2.0 Dead Man's Switch)
+  - name: monitoring
+    description: Anonymous client error reporting (no PII, no auth)
 
 # ══════════════════════════════════════════════════════════
 # COMPONENTS
@@ -341,6 +343,28 @@ components:
           type: integer
           minimum: 0
           description: Required when status is `expected_offline`
+
+    ErrorReport:
+      type: object
+      required: [error_code]
+      properties:
+        error_code:
+          type: string
+          enum: [decoding, server_5xx, transport, auth_failure]
+          description: Unknown values are stored as `unknown`.
+        endpoint:
+          type: string
+          maxLength: 200
+          description: API path the error occurred on (no query string)
+        http_status:
+          type: [integer, "null"]
+          description: Only set for `server_5xx` (null otherwise)
+        app_version:
+          type: string
+          maxLength: 20
+        os_version:
+          type: string
+          maxLength: 20
 
     # ── Auth request bodies ──────────────────────────────────
 
@@ -1336,6 +1360,32 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
+
+  /api/v1/events/error:
+    post:
+      tags: [monitoring]
+      operationId: reportError
+      summary: Report an anonymous client-side error
+      description: |
+        Fire-and-forget error report from the iOS client (decoding failure,
+        5xx response, transport error). No authentication required; IP
+        rate-limited to 10 requests/minute via Cloudflare + Redis.
+
+        **DSGVO**: the stored record contains no user id and no IP — only a
+        coarse error code, endpoint path, HTTP status and client/OS version.
+        Reports are purged after 90 days.
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ErrorReport'
+      responses:
+        '204':
+          description: Report accepted (always 204, even for unknown error codes)
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
 # ══════════════════════════════════════════════════════════
 # EXTENSIONS

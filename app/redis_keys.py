@@ -41,3 +41,6 @@ REFRESH_USER_JTIS = f'{_P}refresh_user_jtis:'  # + user_id  →  SET of jti
 
 # Generic request rate limiting (fixed-window counter per scope + client IP).
 RATE_LIMIT = f'{_P}ratelimit:'  # + "<scope>:<client_ip>"  →  counter (with TTL)
+
+# Error-alert throttle — one e-mail per identical log site within the TTL window.
+ALERT_THROTTLE = f'{_P}alert_throttle:'  # + "<name>:<func>:<lineno>"  →  '1' (with TTL)

@@ -64,6 +64,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     Migrate(app, db)
     mail.init_app(app)
 
+    from .monitoring import configure_logging
+    configure_logging(app)
+
     # CSP allows the CDN assets used by admin/landing templates while blocking
     # exfiltration to unknown origins. 'unsafe-inline' for scripts is required
     # because the dashboard uses inline <script> blocks; moving them to
@@ -119,6 +122,9 @@ def create_app(test_config: dict | None = None) -> Flask:
     from .safety_timer import bp as safety_timer_bp
     app.register_blueprint(safety_timer_bp)
 
+    from .error_events import bp as error_events_bp
+    app.register_blueprint(error_events_bp)
+
     # Background workers (escalation + Dead-Man's-Switch timer). In production
     # these run in a dedicated single process (see app/worker.py) so they are
     # not duplicated across gunicorn web workers and don't run inside the web
@@ -155,5 +161,8 @@ def create_app(test_config: dict | None = None) -> Flask:
     if _debug_env or app.config.get('TESTING'):
         from .debug import bp as debug_bp
         app.register_blueprint(debug_bp)
+
+    from .monitoring import register_error_handler
+    register_error_handler(app)
 
     return app

@@ -5,6 +5,7 @@ from .db import db
 
 _ALARM_RETENTION_DAYS = 30
 _REPUTATION_RETENTION_DAYS = 30
+_ERROR_EVENT_RETENTION_DAYS = 90
 
 
 class User(db.Model):
@@ -285,3 +286,33 @@ class SafetyTimer(db.Model):
             'note': self.note,
             'created_at': self.created_at.isoformat() + 'Z' if self.created_at else None,
         }
+
+
+class ErrorEvent(db.Model):
+    """Anonymous client- and server-side error report (monitoring only).
+
+    DSGVO Art. 5: deliberately holds NO user id and NO IP (the Cloudflare tunnel
+    does not forward the real client IP). Retained 90 days, then purged by
+    ``flask cleanup errors``.
+    """
+    __tablename__ = 'error_events'
+
+    # BigInteger on Postgres; SQLite only auto-increments a plain INTEGER PK.
+    id = db.Column(
+        db.BigInteger().with_variant(db.Integer, 'sqlite'),
+        primary_key=True, autoincrement=True,
+    )
+    created_at = db.Column(db.DateTime, nullable=False, server_default=db.func.now(), index=True)
+    error_code = db.Column(db.String(40), nullable=False, index=True)
+    endpoint = db.Column(db.String(200), nullable=True)
+    http_status = db.Column(db.Integer, nullable=True)
+    app_version = db.Column(db.String(20), nullable=True)
+    os_version = db.Column(db.String(20), nullable=True)
+    auto_delete_at = db.Column(db.DateTime, nullable=False)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        if self.auto_delete_at is None:
+            self.auto_delete_at = (
+                datetime.now(timezone.utc) + timedelta(days=_ERROR_EVENT_RETENTION_DAYS)
+            )

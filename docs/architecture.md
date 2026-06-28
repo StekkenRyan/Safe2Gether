@@ -339,6 +339,23 @@ Vollständige DSGVO-Dokumentation: [docs/dsgvo.md](dsgvo.md)
 | Replikations-Lag | `pg_stat_replication` (manuell) | Replikation gesund? |
 | Logs | `make logs` / `docker-compose logs -f` | Fehleranalyse |
 
+### 13.1 Error-Monitoring & Alerting
+
+Drittanbieterfrei und DSGVO-konform — kein Sentry, keine personenbezogenen Daten.
+
+- **Datei-Log** (`app/monitoring.py`): `RotatingFileHandler` schreibt WARNING+ nach
+  `${LOG_DIR}/safe2gether.log` (10 MB × 5). Immer aktiv.
+- **Globaler Error-Handler**: unbehandelte Exceptions werden als `500 {code: INTERNAL}`
+  beantwortet und mit Methode, `request.path` (ohne Query-String), Exception-Typ und
+  Traceback geloggt — **niemals** User-ID, E-Mail, Koordinaten oder Request-Body.
+- **E-Mail-Alert** (`ERROR_ALERTS_ENABLED`): ERROR-Level-Fehler lösen eine Mail über das
+  bestehende Brevo-SMTP-Relay aus — im Hintergrund-Thread (blockiert den Request-Cycle
+  nicht) und gedrosselt auf eine Mail pro identischer Fehlerstelle / 5 min (Redis-`SETNX`,
+  fail-open). Unter `TESTING` hart deaktiviert.
+- **Client-Reports**: `POST /api/v1/events/error` (anonym, IP-rate-limitiert) schreibt nach
+  `error_events`; `decoding`/`server_5xx` triggern denselben Alert-Pfad. Aufbewahrung 90 Tage
+  → `flask cleanup errors` (täglicher Cron, analog `alarms`/`reputation`).
+
 ---
 
 ## Deployment-Guides

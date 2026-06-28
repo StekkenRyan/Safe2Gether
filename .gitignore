@@ -13,3 +13,6 @@ venv/
 
 # APNs key
 *.p8
+
+# Rotating application logs
+logs/
