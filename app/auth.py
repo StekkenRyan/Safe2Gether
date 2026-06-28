@@ -18,6 +18,7 @@ import redis as redis_lib
 from flask import Blueprint, g, jsonify, render_template, request
 from flask_mail import Message
 from jwt.algorithms import RSAAlgorithm
+from sqlalchemy.exc import IntegrityError
 
 from . import mail
 from .db import db
@@ -46,6 +47,20 @@ _JWKS_CACHE_TTL = 43200  # 12 hours
 
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[a-zA-Z]{2,}$')
 _APNS_TOKEN_RE = re.compile(r'^[a-f0-9]{64}$', re.IGNORECASE)
+
+# Pre-computed bcrypt hash of a random password. Verifying against it in the
+# "sign in to a non-existent account" path equalizes response time with the
+# real-password path, so timing can't reveal whether an email is registered
+# (user-enumeration guard, same posture as the password-reset endpoint).
+_DUMMY_PW_HASH = bcrypt.hashpw(secrets.token_hex(16).encode(), bcrypt.gensalt())
+
+
+def _create_email_user(email: str, password: str) -> User:
+    pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
+    user = User(email=email, password_hash=pw_hash, auth_provider='email')
+    db.session.add(user)
+    db.session.commit()
+    return user
 
 
 def _redis_client() -> redis_lib.Redis:
@@ -190,7 +205,14 @@ def signin():
     else:
         email = (data.get('email') or '').lower().strip()
         password = data.get('password') or ''
+        # 'signin'   → account must exist and password must match, else 401
+        # 'register' → account must NOT exist, else 409
+        # None       → legacy upsert (create if new, else verify password)
+        action = data.get('action')
 
+        if action is not None and action not in ('signin', 'register'):
+            return jsonify({'error': 'Bad Request', 'code': 'INVALID_ACTION',
+                            'detail': "action must be 'signin' or 'register'"}), 400
         if not email or not password:
             return jsonify({'error': 'Bad Request', 'code': 'MISSING_CREDENTIALS'}), 400
         if not _EMAIL_RE.match(email):
@@ -200,13 +222,29 @@ def signin():
                             'detail': 'Password must be at least 8 characters.'}), 400
 
         user = User.query.filter_by(email=email, auth_provider='email').first()
-        if user is None:
-            pw_hash = bcrypt.hashpw(password.encode(), bcrypt.gensalt()).decode()
-            user = User(email=email, password_hash=pw_hash, auth_provider='email')
-            db.session.add(user)
-            db.session.commit()
-        else:
+
+        if action == 'register':
+            if user is not None:
+                return jsonify({'error': 'Conflict', 'code': 'EMAIL_ALREADY_REGISTERED',
+                                'detail': 'Diese E-Mail ist bereits registriert.'}), 409
+            try:
+                user = _create_email_user(email, password)
+            except IntegrityError:
+                # Lost a race against a concurrent registration for the same email.
+                db.session.rollback()
+                return jsonify({'error': 'Conflict', 'code': 'EMAIL_ALREADY_REGISTERED',
+                                'detail': 'Diese E-Mail ist bereits registriert.'}), 409
+        elif action == 'signin':
+            if user is None:
+                bcrypt.checkpw(password.encode(), _DUMMY_PW_HASH)  # equalize timing
+                return jsonify({'error': 'Unauthorized', 'code': 'INVALID_CREDENTIALS'}), 401
             if not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
+                return jsonify({'error': 'Unauthorized', 'code': 'INVALID_CREDENTIALS'}), 401
+        else:
+            # Legacy upsert: create on first sign-in, otherwise verify password.
+            if user is None:
+                user = _create_email_user(email, password)
+            elif not bcrypt.checkpw(password.encode(), user.password_hash.encode()):
                 return jsonify({'error': 'Unauthorized', 'code': 'INVALID_CREDENTIALS'}), 401
 
     if not user.is_active:

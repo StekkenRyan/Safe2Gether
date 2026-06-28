@@ -59,6 +59,73 @@ def test_email_signup_missing_fields(client):
     assert resp.get_json()['code'] == 'MISSING_CREDENTIALS'
 
 
+# ─── action: register / signin ────────────────────────────────────────────────
+
+def test_register_action_creates_account(client):
+    resp = client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'register',
+        'email': 'fresh@example.com', 'password': 'password123',
+    })
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data['access_token']
+    assert data['user']['email'] == 'fresh@example.com'
+
+
+def test_register_action_conflicts_when_account_exists(client):
+    payload = {'provider': 'email', 'action': 'register',
+               'email': 'dupe@example.com', 'password': 'password123'}
+    assert client.post('/api/v1/auth/signin', json=payload).status_code == 200
+
+    resp = client.post('/api/v1/auth/signin', json=payload)
+    assert resp.status_code == 409
+    assert resp.get_json()['code'] == 'EMAIL_ALREADY_REGISTERED'
+
+
+def test_signin_action_unknown_account_returns_401(client):
+    resp = client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'signin',
+        'email': 'ghost@example.com', 'password': 'password123',
+    })
+    assert resp.status_code == 401
+    assert resp.get_json()['code'] == 'INVALID_CREDENTIALS'
+
+
+def test_signin_action_existing_correct_password(client):
+    client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'register',
+        'email': 'member@example.com', 'password': 'correcthorse',
+    })
+    resp = client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'signin',
+        'email': 'member@example.com', 'password': 'correcthorse',
+    })
+    assert resp.status_code == 200
+    assert resp.get_json()['user']['email'] == 'member@example.com'
+
+
+def test_signin_action_existing_wrong_password(client):
+    client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'register',
+        'email': 'member2@example.com', 'password': 'correcthorse',
+    })
+    resp = client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'signin',
+        'email': 'member2@example.com', 'password': 'wrongpass1',
+    })
+    assert resp.status_code == 401
+    assert resp.get_json()['code'] == 'INVALID_CREDENTIALS'
+
+
+def test_invalid_action_rejected(client):
+    resp = client.post('/api/v1/auth/signin', json={
+        'provider': 'email', 'action': 'delete',
+        'email': 'x@example.com', 'password': 'password123',
+    })
+    assert resp.status_code == 400
+    assert resp.get_json()['code'] == 'INVALID_ACTION'
+
+
 # ─── Provider validation ──────────────────────────────────────────────────────
 
 def test_invalid_provider_rejected(client):

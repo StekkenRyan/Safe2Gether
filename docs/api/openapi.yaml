@@ -404,6 +404,13 @@ components:
           type: string
           format: password
           minLength: 8
+        action:
+          type: string
+          enum: [signin, register]
+          description: |
+            `signin` requires the account to exist (else 401); `register`
+            requires it to NOT exist (else 409). Omitting it falls back to the
+            legacy upsert (create on first sign-in, otherwise verify password).
 
     AuthResponse:
       type: object
@@ -467,6 +474,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/Error'
+    Conflict:
+      description: Resource already exists
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
     TooManyRequests:
       description: Rate limit exceeded
       headers:
@@ -499,8 +512,12 @@ paths:
       operationId: signIn
       summary: Sign in or create account
       description: |
-        Authenticates with Apple, Google, or email/password. Creates an account
-        on first sign-in (no separate registration endpoint needed).
+        Authenticates with Apple, Google, or email/password.
+
+        For email, the optional `action` field separates the two flows:
+        `signin` (account must exist, else 401) and `register` (account must
+        not exist, else 409). Apple/Google always upsert. Omitting `action`
+        keeps the legacy upsert behaviour.
       security: []
       requestBody:
         required: true
@@ -526,6 +543,10 @@ paths:
                 $ref: '#/components/schemas/AuthResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '429':
           $ref: '#/components/responses/TooManyRequests'
         '500':
